@@ -11,7 +11,12 @@ description = "Pure-Rust core for the axe CLI: Context, Plan, Runner."
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
+humantime-serde.workspace = true
 tracing.workspace = true
 camino.workspace = true
 indexmap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
