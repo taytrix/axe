@@ -1,0 +1,16 @@
+[package]
+name = "axe-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "axe daemon tickloop: manifest polling, scheduled work, snapshot publication."
+
+[dependencies]
+axe-core.workspace = true
+axe-adapters.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true

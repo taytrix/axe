@@ -1,0 +1,17 @@
+[package]
+name = "axe-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure-Rust core for the axe CLI: Context, Plan, Runner."
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+toml.workspace = true
+tracing.workspace = true
+camino.workspace = true
+indexmap.workspace = true

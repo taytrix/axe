@@ -1,0 +1,17 @@
+[package]
+name = "axe-adapters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "I/O adapters for axe: steamcmd, Workshop API, ACF, INI, RCON, Notify, Host."
+
+[dependencies]
+axe-core.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+camino.workspace = true

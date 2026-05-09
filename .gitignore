@@ -1,0 +1,18 @@
+/target
+**/*.rs.bk
+*.profraw
+*.profdata
+.envrc.local
+.direnv
+/result
+/result-*
+
+# editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# axe runtime artifacts (when developing against a live install)
+.axe/
+/axe.toml.local
