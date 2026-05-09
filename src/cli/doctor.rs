@@ -1,17 +1,16 @@
 use camino::Utf8Path;
 use owo_colors::OwoColorize;
 
-use axe_core::Context;
-use axe_core::doctor::{self, Level};
-use axe_core::error::ExitCode;
-
+use axe::Context;
+use axe::doctor::{self, Level};
+use axe::error::ExitCode;
 use crate::output::Output;
 
 #[derive(Debug, Clone, clap::Args)]
 pub struct Args {}
 
 pub fn run(_args: &Args, out: Output, config_path: &Utf8Path) -> ExitCode {
-    let ctx = match Context::load(&config_path.into()) {
+    let ctx = match Context::load(config_path) {
         Ok(c) => c,
         Err(e) => return out.fail("doctor", e.exit_code(), &e.to_string()),
     };

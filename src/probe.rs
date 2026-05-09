@@ -1,23 +1,18 @@
 //! Probe a candidate install root and return a [`Layout`].
-//!
-//! The probe is read-only and conservative: we look for the dedicated-server
-//! binary on either platform, decide which platform we're looking at, and
-//! return a fully-resolved [`Layout`]. Callers can then ask the doctor whether
-//! the resulting paths are sane.
 
 use camino::Utf8Path;
 
-use crate::error::CoreError;
+use crate::error::Error;
 use crate::layout::{Layout, Platform};
 
 /// Walk `root` and return a [`Layout`] for whichever platform it appears to be.
 ///
 /// # Errors
-/// Returns [`CoreError::Discovery`] if neither a Linux nor a Windows server
-/// binary is present under `root`.
-pub fn probe(root: &Utf8Path) -> Result<Layout, CoreError> {
+/// Returns [`Error::Discovery`] if `root` is not a directory or neither a
+/// Linux nor a Windows server binary is present under it.
+pub fn probe(root: &Utf8Path) -> Result<Layout, Error> {
     if !root.is_dir() {
-        return Err(CoreError::Discovery(format!("{root} is not a directory")));
+        return Err(Error::Discovery(format!("{root} is not a directory")));
     }
 
     let linux = Layout::at(root, Platform::Linux);
@@ -30,9 +25,8 @@ pub fn probe(root: &Utf8Path) -> Result<Layout, CoreError> {
         return Ok(windows);
     }
 
-    Err(CoreError::Discovery(format!(
-        "no Conan Exiles server binary under {root}; \
-         expected {} or {}",
+    Err(Error::Discovery(format!(
+        "no Conan Exiles server binary under {root}; expected {} or {}",
         linux.binary, windows.binary
     )))
 }

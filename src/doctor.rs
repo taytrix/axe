@@ -1,7 +1,4 @@
-//! `axe doctor`: a list of small read-only checks against a [`Layout`].
-//!
-//! Findings are intentionally tiny: a level, a topic, a one-line message.
-//! Anything richer can wait for the v0.2 agent contract.
+//! `axe doctor`: small read-only checks against a [`Layout`].
 
 use std::fmt;
 
@@ -80,9 +77,6 @@ impl Report {
 }
 
 /// Run all v0.1 checks against `layout` (and the config it was built from).
-///
-/// The checks are deliberately read-only: existence, executable bit, and
-/// case-sensitivity sanity (Linux's lowercase `game.db` rule).
 #[must_use]
 pub fn run(config: &Config, layout: &Layout) -> Report {
     let mut findings = Vec::new();
@@ -201,7 +195,6 @@ fn check_game_db(layout: &Layout) -> Finding {
     if layout.platform != Platform::Linux {
         return Finding::warn("game.db", format!("{path} not present yet"));
     }
-    // Linux is case-sensitive; warn if a wrongly-cased copy is sitting nearby.
     let saved = layout.root.join("ConanSandbox/Saved");
     let Ok(entries) = std::fs::read_dir(saved.as_std_path()) else {
         return Finding::warn("game.db", format!("{path} not present yet"));

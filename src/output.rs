@@ -8,7 +8,7 @@ use std::io::{self, Write};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use axe_core::error::ExitCode;
+use axe::error::ExitCode;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Output {

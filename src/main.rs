@@ -6,10 +6,10 @@
 
 use std::process::ExitCode as OsExit;
 
-use axe_core::error::ExitCode;
+use axe::error::ExitCode;
 use clap::{Parser, Subcommand};
 
-mod cmd;
+mod cli;
 mod output;
 
 use crate::output::Output;
@@ -51,42 +51,33 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Cmd {
     /// Write a starter axe.toml in the current directory.
-    Init(cmd::init::Args),
+    Init(cli::init::Args),
     /// Run a series of read-only sanity checks against the install.
-    Doctor(cmd::doctor::Args),
+    Doctor(cli::doctor::Args),
     /// Print version information.
-    Version(cmd::version::Args),
+    Version(cli::version::Args),
     /// Manage the canonical mod list.
-    Mods(cmd::mods::Args),
+    Mods(cli::mods::Args),
 }
 
 fn main() -> OsExit {
     let cli = Cli::parse();
-    init_tracing();
     apply_color_choice(cli.no_color);
 
     let out = Output {
         json: cli.json,
         quiet: cli.quiet,
     };
-    let config_path = cmd::config_path(cli.config.as_deref());
+    let config_path = cli::config_path(cli.config.as_deref());
 
     let exit: ExitCode = match &cli.command {
-        Cmd::Init(args) => cmd::init::run(args, out, &config_path),
-        Cmd::Doctor(args) => cmd::doctor::run(args, out, &config_path),
-        Cmd::Version(args) => cmd::version::run(args, out, &config_path),
-        Cmd::Mods(args) => cmd::mods::run(args, out, &config_path),
+        Cmd::Init(args) => cli::init::run(args, out, &config_path),
+        Cmd::Doctor(args) => cli::doctor::run(args, out, &config_path),
+        Cmd::Version(args) => cli::version::run(args, out, &config_path),
+        Cmd::Mods(args) => cli::mods::run(args, out, &config_path),
     };
 
     OsExit::from(u8::try_from(exit.as_i32().clamp(0, 255)).unwrap_or(1))
-}
-
-fn init_tracing() {
-    use tracing_subscriber::EnvFilter;
-    use tracing_subscriber::fmt;
-
-    let filter = EnvFilter::try_from_env("AXE_LOG").unwrap_or_else(|_| EnvFilter::new("warn"));
-    let _ = fmt().with_env_filter(filter).with_target(false).try_init();
 }
 
 fn apply_color_choice(no_color: bool) {

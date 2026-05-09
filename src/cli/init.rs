@@ -2,10 +2,9 @@ use camino::{Utf8Path, Utf8PathBuf};
 use owo_colors::OwoColorize;
 use serde::Serialize;
 
-use axe_core::error::ExitCode;
-use axe_core::{Config, probe};
-
+use axe::error::ExitCode;
 use crate::output::Output;
+use axe::{Config, probe};
 
 #[derive(Debug, Clone, clap::Args)]
 pub struct Args {
@@ -26,7 +25,7 @@ struct Wrote<'a> {
     config_path: &'a Utf8Path,
     server_id: &'a str,
     root: &'a Utf8Path,
-    platform: Option<axe_core::Platform>,
+    platform: Option<axe::Platform>,
 }
 
 pub fn run(args: &Args, out: Output, config_path: &Utf8Path) -> ExitCode {

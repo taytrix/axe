@@ -1,9 +1,7 @@
 use thiserror::Error;
 
-/// Categorical exit codes used across the CLI surface.
-///
-/// These map to the table in the spec (§3 / §6 / §7). They are stable across
-/// patch versions; v0.2 will narrow them with a `kind` taxonomy.
+/// Categorical exit codes used across the CLI surface. Stable across patch
+/// versions; v0.2 may narrow them with a `kind` taxonomy on the JSON envelope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum ExitCode {
@@ -25,22 +23,27 @@ impl ExitCode {
 }
 
 #[derive(Debug, Error)]
-pub enum CoreError {
+pub enum Error {
     #[error("configuration error: {0}")]
     Config(String),
     #[error("discovery error: {0}")]
     Discovery(String),
     #[error("filesystem error: {0}")]
     Filesystem(String),
+    #[error("workshop API error: {0}")]
+    WorkshopApi(String),
+    #[error("ACF parse error: {0}")]
+    AcfParse(String),
 }
 
-impl CoreError {
+impl Error {
     #[must_use]
     pub fn exit_code(&self) -> ExitCode {
         match self {
             Self::Config(_) => ExitCode::Config,
-            Self::Discovery(_) => ExitCode::Discovery,
+            Self::Discovery(_) | Self::AcfParse(_) => ExitCode::Discovery,
             Self::Filesystem(_) => ExitCode::Filesystem,
+            Self::WorkshopApi(_) => ExitCode::Network,
         }
     }
 }

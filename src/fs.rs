@@ -1,11 +1,8 @@
-//! Small filesystem helpers shared across crates.
-//!
-//! These are intentionally minimal: no tempfile crate dependency at this layer,
-//! just the pattern axe needs for atomic writes.
+//! Tiny filesystem helpers shared across modules.
 
 use camino::Utf8Path;
 
-use crate::error::CoreError;
+use crate::error::Error;
 
 /// Atomically replace `path` with `contents` (write tmp → rename).
 ///
@@ -13,13 +10,12 @@ use crate::error::CoreError;
 /// so the rename stays on the same mount point.
 ///
 /// # Errors
-/// Returns [`CoreError::Filesystem`] on any write or rename failure.
-pub fn atomic_write(path: &Utf8Path, contents: &[u8]) -> Result<(), CoreError> {
+/// Returns [`Error::Filesystem`] on any write or rename failure.
+pub fn atomic_write(path: &Utf8Path, contents: &[u8]) -> Result<(), Error> {
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, contents)
-        .map_err(|e| CoreError::Filesystem(format!("writing {tmp}: {e}")))?;
+    std::fs::write(&tmp, contents).map_err(|e| Error::Filesystem(format!("writing {tmp}: {e}")))?;
     std::fs::rename(&tmp, path)
-        .map_err(|e| CoreError::Filesystem(format!("renaming {tmp} -> {path}: {e}")))?;
+        .map_err(|e| Error::Filesystem(format!("renaming {tmp} -> {path}: {e}")))?;
     Ok(())
 }
 
@@ -44,7 +40,6 @@ mod tests {
         atomic_write(&path, b"first").unwrap();
         atomic_write(&path, b"second").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
-        // tmp file must not linger
         assert!(!path.with_extension("tmp").exists());
     }
 }

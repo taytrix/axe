@@ -1,8 +1,4 @@
-//! `Layout`: every well-known path inside an install root, resolved.
-//!
-//! The probe (see [`crate::probe`]) returns one of these. The doctor reads
-//! one. Adapters and verbs consume one. Constructed from a `Config` + a
-//! filesystem walk; never persisted.
+//! `Layout`: every well-known path inside an install root.
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
@@ -62,8 +58,7 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// Build a `Layout` for `root` on `platform` without checking that any of
-    /// the paths actually exist. Probing-with-checks is [`crate::probe::probe`].
+    /// Build a `Layout` for `root` on `platform` without checking existence.
     #[must_use]
     pub fn at(root: &Utf8Path, platform: Platform) -> Self {
         let bin_dir = root.join(platform.binary_subdir());
@@ -101,7 +96,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn linux_paths_match_stygia() {
+    fn linux_paths_are_resolved() {
         let layout = Layout::at(Utf8Path::new("/var/lib/conan"), Platform::Linux);
         assert_eq!(
             layout.binary.as_str(),

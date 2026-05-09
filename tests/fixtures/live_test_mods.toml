@@ -1,0 +1,9 @@
+# Public Conan Exiles Enhanced workshop mods used for live API smoke tests.
+# Workshop items can vanish; if a test fails because Steam returns result != 1,
+# replace the offending id with another known-good public Enhanced mod.
+ids = [
+    3721090132,
+    3721096154,
+    3721177576,
+    3721991191,
+]

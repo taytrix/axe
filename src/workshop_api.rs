@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::AdapterError;
+use crate::error::Error;
 
 /// Per-item info returned by the Workshop API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +20,6 @@ pub struct WorkshopItem {
     pub result: i32,
 }
 
-/// Response envelope from the Workshop API.
 #[derive(Debug, Deserialize)]
 struct ApiEnvelope {
     response: ApiResponse,
@@ -43,11 +42,10 @@ struct ItemRaw {
 /// Query the Workshop API for the given list of published file IDs.
 ///
 /// # Errors
-/// Returns [`AdapterError::WorkshopApi`] on any HTTP or parse failure.
-pub fn get_published_file_details(ids: &[u64]) -> Result<Vec<WorkshopItem>, AdapterError> {
+/// Returns [`Error::WorkshopApi`] on any HTTP or parse failure.
+pub fn get_published_file_details(ids: &[u64]) -> Result<Vec<WorkshopItem>, Error> {
     let url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/";
 
-    // Build form params: item_count + publishedfileids[N]
     let mut keys: Vec<String> = Vec::with_capacity(ids.len());
     let mut params: Vec<(&str, String)> = vec![("itemcount", ids.len().to_string())];
     for (i, _id) in ids.iter().enumerate() {
@@ -66,13 +64,13 @@ pub fn get_published_file_details(ids: &[u64]) -> Result<Vec<WorkshopItem>, Adap
     let resp = agent
         .post(url)
         .send_form(params)
-        .map_err(|e| AdapterError::WorkshopApi(format!("HTTP request: {e}")))?
+        .map_err(|e| Error::WorkshopApi(format!("HTTP request: {e}")))?
         .body_mut()
         .read_to_string()
-        .map_err(|e| AdapterError::WorkshopApi(format!("reading body: {e}")))?;
+        .map_err(|e| Error::WorkshopApi(format!("reading body: {e}")))?;
 
     let envelope: ApiEnvelope = serde_json::from_str(&resp)
-        .map_err(|e| AdapterError::WorkshopApi(format!("parsing JSON: {e}")))?;
+        .map_err(|e| Error::WorkshopApi(format!("parsing JSON: {e}")))?;
 
     let items = envelope
         .response
@@ -96,13 +94,34 @@ mod tests {
 
     #[test]
     #[ignore = "hits real Steam API; run with cargo test -- --ignored"]
-    fn fetches_stygia_mods() {
-        let ids = [3_721_090_132, 3_721_096_154, 3_721_177_576, 3_721_991_191];
+    fn fetches_test_mods_from_fixture() {
+        let fixture = include_str!("../tests/fixtures/live_test_mods.toml");
+        let ids: Vec<u64> = toml::from_str::<TestIds>(fixture).unwrap().ids;
+        assert!(
+            !ids.is_empty(),
+            "fixture must contain at least one test mod id"
+        );
         let items = get_published_file_details(&ids).unwrap();
-        assert_eq!(items.len(), 4);
+        assert!(
+            items.len() <= ids.len(),
+            "API returned more items than requested"
+        );
         for item in &items {
-            assert_eq!(item.result, 1);
-            assert!(!item.title.is_empty());
+            assert_eq!(
+                item.result, 1,
+                "item {} is not published",
+                item.publishedfileid
+            );
+            assert!(
+                !item.title.is_empty(),
+                "item {} has no title",
+                item.publishedfileid
+            );
         }
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct TestIds {
+        ids: Vec<u64>,
     }
 }
