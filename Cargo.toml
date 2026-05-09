@@ -37,6 +37,8 @@ camino      = { version = "1", features = ["serde1"] }
 indexmap    = { version = "2", features = ["serde"] }
 owo-colors  = { version = "4", features = ["supports-colors"] }
 tempfile    = "3"
+ureq        = { version = "3", features = ["json"] }
+chrono      = { version = "0.4", features = ["serde"] }
 
 [profile.release]
 lto = "thin"

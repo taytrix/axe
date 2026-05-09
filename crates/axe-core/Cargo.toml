@@ -17,6 +17,7 @@ humantime-serde.workspace = true
 tracing.workspace = true
 camino.workspace = true
 indexmap.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -11,6 +11,7 @@ pub mod doctor;
 pub mod error;
 pub mod fs;
 pub mod layout;
+pub mod mods_config;
 pub mod probe;
 
 pub use config::Config;
@@ -18,6 +19,7 @@ pub use context::Context;
 pub use error::{CoreError, ExitCode};
 pub use fs::atomic_write;
 pub use layout::{Layout, Platform};
+pub use mods_config::ModsConfig;
 
 /// Steam appid of the dedicated server depot.
 pub const SERVER_APPID: u32 = 443_030;

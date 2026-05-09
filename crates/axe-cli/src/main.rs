@@ -56,6 +56,8 @@ enum Cmd {
     Doctor(cmd::doctor::Args),
     /// Print version information.
     Version(cmd::version::Args),
+    /// Manage the canonical mod list.
+    Mods(cmd::mods::Args),
 }
 
 fn main() -> OsExit {
@@ -73,6 +75,7 @@ fn main() -> OsExit {
         Cmd::Init(args) => cmd::init::run(args, out, &config_path),
         Cmd::Doctor(args) => cmd::doctor::run(args, out, &config_path),
         Cmd::Version(args) => cmd::version::run(args, out, &config_path),
+        Cmd::Mods(args) => cmd::mods::run(args, out, &config_path),
     };
 
     OsExit::from(u8::try_from(exit.as_i32().clamp(0, 255)).unwrap_or(1))
