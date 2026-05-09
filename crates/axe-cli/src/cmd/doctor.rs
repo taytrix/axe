@@ -1,9 +1,9 @@
 use camino::Utf8Path;
 use owo_colors::OwoColorize;
 
+use axe_core::Context;
 use axe_core::doctor::{self, Level};
 use axe_core::error::ExitCode;
-use axe_core::{Config, probe};
 
 use crate::output::Output;
 
@@ -11,17 +11,12 @@ use crate::output::Output;
 pub struct Args {}
 
 pub fn run(_args: &Args, out: Output, config_path: &Utf8Path) -> ExitCode {
-    let config = match Config::load(config_path) {
+    let ctx = match Context::load(&config_path.into()) {
         Ok(c) => c,
         Err(e) => return out.fail("doctor", e.exit_code(), &e.to_string()),
     };
 
-    let layout = match probe::probe(&config.server.root) {
-        Ok(l) => l,
-        Err(e) => return out.fail("doctor", e.exit_code(), &e.to_string()),
-    };
-
-    let report = doctor::run(&config, &layout);
+    let report = doctor::run(&ctx.config, &ctx.layout);
 
     out.ok("doctor", &report, || {
         for f in &report.findings {

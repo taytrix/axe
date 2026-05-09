@@ -6,13 +6,17 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod config;
+pub mod context;
 pub mod doctor;
 pub mod error;
+pub mod fs;
 pub mod layout;
 pub mod probe;
 
 pub use config::Config;
+pub use context::Context;
 pub use error::{CoreError, ExitCode};
+pub use fs::atomic_write;
 pub use layout::{Layout, Platform};
 
 /// Steam appid of the dedicated server depot.

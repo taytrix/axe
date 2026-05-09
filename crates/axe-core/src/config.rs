@@ -203,18 +203,14 @@ impl Config {
             .map_err(|e| CoreError::Config(format!("serializing axe.toml: {e}")))
     }
 
-    /// Atomically write the config to `path` (write tmp, fsync, rename).
+    /// Atomically write the config to `path` (write tmp → rename).
     ///
     /// # Errors
     /// Returns a `CoreError::Filesystem` on any filesystem write failure, or
     /// a `CoreError::Config` if serialization fails.
     pub fn save(&self, path: &Utf8Path) -> Result<(), CoreError> {
         let body = self.to_toml()?;
-        let tmp = path.with_extension("toml.tmp");
-        std::fs::write(&tmp, body.as_bytes())
-            .map_err(|e| CoreError::Filesystem(format!("writing {tmp}: {e}")))?;
-        std::fs::rename(&tmp, path)
-            .map_err(|e| CoreError::Filesystem(format!("renaming {tmp} -> {path}: {e}")))?;
+        crate::fs::atomic_write(path, body.as_bytes())?;
         Ok(())
     }
 }

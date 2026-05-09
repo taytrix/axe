@@ -1,5 +1,6 @@
 pub mod doctor;
 pub mod init;
+pub mod version;
 
 use camino::Utf8PathBuf;
 
