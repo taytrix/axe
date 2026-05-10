@@ -118,3 +118,148 @@ def test_server_status_envelope(
     assert envelope["ok"] is True
     assert envelope["data"]["active_state"] == "active"
     assert envelope["data"]["main_pid"] == 12345
+
+
+def test_unit_server_envelope(synthetic_install_with_toml: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["--json", "--config", str(synthetic_install_with_toml / "axe.toml"), "unit"],
+    )
+    assert result.exit_code == 0
+    envelope = json.loads(result.stdout)
+    assert envelope["data"]["target"] == "server"
+    assert "ExecStart=" in envelope["data"]["text"]
+
+
+def test_unit_monitor_envelope(synthetic_install_with_toml: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "--config",
+            str(synthetic_install_with_toml / "axe.toml"),
+            "unit",
+            "monitor",
+        ],
+    )
+    assert result.exit_code == 0
+    envelope = json.loads(result.stdout)
+    assert envelope["data"]["target"] == "monitor"
+    assert "Type=oneshot" in envelope["data"]["service"]
+    assert "WantedBy=timers.target" in envelope["data"]["timer"]
+
+
+def test_unit_invalid_target(synthetic_install_with_toml: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "--config",
+            str(synthetic_install_with_toml / "axe.toml"),
+            "unit",
+            "invalid",
+        ],
+    )
+    assert result.exit_code == int(ExitCode.MISUSE)
+
+
+def test_server_up_invokes_systemctl(
+    monkeypatch: pytest.MonkeyPatch,
+    synthetic_install_with_toml: Path,
+) -> None:
+    seen: dict[str, str] = {}
+
+    from axe import cli, systemd
+    from axe.systemd import SystemctlVerb, SystemdResult
+
+    def fake(unit: str, verb: SystemctlVerb) -> SystemdResult:
+        seen["unit"] = unit
+        seen["verb"] = verb
+        return SystemdResult(unit=unit, verb=verb, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(systemd, "systemctl_verb", fake)
+    monkeypatch.setattr(cli, "systemctl_verb", fake)
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "--config",
+            str(synthetic_install_with_toml / "axe.toml"),
+            "server",
+            "up",
+        ],
+    )
+    assert result.exit_code == 0
+    assert seen == {"unit": "axe-conan.service", "verb": "start"}
+
+
+def test_logs_path_no_dir(synthetic_install_with_toml: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "--config",
+            str(synthetic_install_with_toml / "axe.toml"),
+            "logs",
+            "path",
+        ],
+    )
+    assert result.exit_code == int(ExitCode.DISCOVERY)
+
+
+def test_logs_path_with_logs_dir(synthetic_install_with_toml: Path) -> None:
+    from axe.layout import layout_at
+
+    layout = layout_at(synthetic_install_with_toml)
+    layout.logs_dir.mkdir(parents=True)
+    (layout.logs_dir / "ConanSandbox.log").write_text("hello\n")
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "--config",
+            str(synthetic_install_with_toml / "axe.toml"),
+            "logs",
+            "path",
+        ],
+    )
+    assert result.exit_code == 0
+    envelope = json.loads(result.stdout)
+    assert envelope["data"]["current_log"].endswith("ConanSandbox.log")
+
+
+def test_logs_tail_returns_last_lines(synthetic_install_with_toml: Path) -> None:
+    from axe.layout import layout_at
+
+    layout = layout_at(synthetic_install_with_toml)
+    layout.logs_dir.mkdir(parents=True)
+    (layout.logs_dir / "ConanSandbox.log").write_text("one\ntwo\nthree\n")
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "--config",
+            str(synthetic_install_with_toml / "axe.toml"),
+            "logs",
+            "tail",
+            "--lines",
+            "2",
+        ],
+    )
+    assert result.exit_code == 0
+    envelope = json.loads(result.stdout)
+    assert envelope["data"]["lines"] == ["two", "three"]
+
+
+def test_logs_tail_json_follow_is_misuse(synthetic_install_with_toml: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "--config",
+            str(synthetic_install_with_toml / "axe.toml"),
+            "logs",
+            "tail",
+            "--follow",
+        ],
+    )
+    assert result.exit_code == int(ExitCode.MISUSE)

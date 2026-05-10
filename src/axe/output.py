@@ -5,7 +5,7 @@ import os
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 from rich.console import Console
 
@@ -60,7 +60,7 @@ def render_fail(
     code: ExitCode,
     message: str,
     opts: OutputOptions,
-) -> None:
+) -> NoReturn:
     if opts.json:
         envelope = {
             "ok": False,
@@ -79,7 +79,7 @@ def render_error(
     command: str,
     error: AxeError,
     opts: OutputOptions,
-) -> None:
+) -> NoReturn:
     code_map: dict[str, ExitCode] = {
         "config": ExitCode.CONFIG,
         "discovery": ExitCode.DISCOVERY,

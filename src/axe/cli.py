@@ -11,6 +11,7 @@ from axe.config import Config, save_config
 from axe.context import load_context
 from axe.errors import AxeError, ExitCode
 from axe.layout import layout_at
+from axe.logs import find_latest_log, follow_log, tail_lines
 from axe.mods import FreshnessReport, has_drift, run_mods_check
 from axe.output import (
     OutputOptions,
@@ -21,7 +22,8 @@ from axe.output import (
 )
 from axe.status import Status, read_status
 from axe.sync import SyncOutcome, sync_modlist
-from axe.systemd import systemctl_show
+from axe.systemd import SystemctlVerb, systemctl_show, systemctl_verb
+from axe.units import render_monitor_units, render_server_unit
 
 app = typer.Typer(
     name="axe",
@@ -370,25 +372,59 @@ def unit(
             message=f"target must be 'server' or 'monitor'; got {target!r}",
             opts=opts,
         )
-    _stub(f"unit {target}", opts)
+    try:
+        context = load_context(_config_path(ctx))
+    except AxeError as e:
+        render_error(command=f"unit {target}", error=e, opts=opts)
+        return
+
+    if target == "server":
+        text = render_server_unit(context.config, context.layout)
+        data: dict[str, object] = {"target": "server", "text": text}
+    else:
+        units = render_monitor_units(context.config, context.config_path)
+        text = f"{units.service}\n{units.timer}"
+        data = {"target": "monitor", "service": units.service, "timer": units.timer}
+    render_ok(
+        command=f"unit {target}",
+        data=data,
+        opts=opts,
+        human=lambda: print(text, end=""),
+    )
+
+
+def _server_lifecycle(ctx: typer.Context, verb: SystemctlVerb, command: str) -> None:
+    opts = _opts(ctx)
+    try:
+        context = load_context(_config_path(ctx))
+        result = systemctl_verb(context.config.effective_unit(), verb)
+    except AxeError as e:
+        render_error(command=command, error=e, opts=opts)
+        return
+    render_ok(
+        command=command,
+        data={"unit": result.unit, "verb": result.verb},
+        opts=opts,
+        human=lambda: print(f"{result.verb} {result.unit}: ok"),
+    )
 
 
 @server_app.command("up")
 def server_up(ctx: typer.Context) -> None:
     """systemctl --user start <unit>"""
-    _stub("server up", _opts(ctx))
+    _server_lifecycle(ctx, "start", "server up")
 
 
 @server_app.command("down")
 def server_down(ctx: typer.Context) -> None:
     """systemctl --user stop <unit>"""
-    _stub("server down", _opts(ctx))
+    _server_lifecycle(ctx, "stop", "server down")
 
 
 @server_app.command("restart")
 def server_restart(ctx: typer.Context) -> None:
     """systemctl --user restart <unit>"""
-    _stub("server restart", _opts(ctx))
+    _server_lifecycle(ctx, "restart", "server restart")
 
 
 @server_app.command("status")
@@ -427,7 +463,29 @@ def server_status(ctx: typer.Context) -> None:
 @logs_app.command("path")
 def logs_path(ctx: typer.Context) -> None:
     """Path to the current Conan log."""
-    _stub("logs path", _opts(ctx))
+    opts = _opts(ctx)
+    try:
+        context = load_context(_config_path(ctx))
+    except AxeError as e:
+        render_error(command="logs path", error=e, opts=opts)
+        return
+    if not context.layout.logs_dir.exists():
+        render_fail(
+            command="logs path",
+            code=ExitCode.DISCOVERY,
+            message=f"logs dir not found at {context.layout.logs_dir}",
+            opts=opts,
+        )
+    latest = find_latest_log(context.layout)
+    render_ok(
+        command="logs path",
+        data={
+            "logs_dir": str(context.layout.logs_dir),
+            "current_log": str(latest) if latest else None,
+        },
+        opts=opts,
+        human=lambda: print(str(latest) if latest else "no log files"),
+    )
 
 
 @logs_app.command("tail")
@@ -437,5 +495,39 @@ def logs_tail(
     follow: Annotated[bool, typer.Option("--follow", "-f")] = False,
 ) -> None:
     """Last N lines of the current Conan log."""
-    _ = (lines, follow)
-    _stub("logs tail", _opts(ctx))
+    opts = _opts(ctx)
+    if opts.json and follow:
+        render_fail(
+            command="logs tail",
+            code=ExitCode.MISUSE,
+            message="--json --follow is not supported (no clean streaming envelope)",
+            opts=opts,
+        )
+    try:
+        context = load_context(_config_path(ctx))
+    except AxeError as e:
+        render_error(command="logs tail", error=e, opts=opts)
+        return
+    latest = find_latest_log(context.layout)
+    if latest is None:
+        render_fail(
+            command="logs tail",
+            code=ExitCode.DISCOVERY,
+            message="no log files found",
+            opts=opts,
+        )
+    if follow:
+        for line in follow_log(latest, lines=lines):
+            print(line, flush=True)
+        return
+    try:
+        last_lines = tail_lines(latest, lines=lines)
+    except AxeError as e:
+        render_error(command="logs tail", error=e, opts=opts)
+        return
+    render_ok(
+        command="logs tail",
+        data={"path": str(latest), "lines": last_lines},
+        opts=opts,
+        human=lambda: print("\n".join(last_lines)),
+    )
