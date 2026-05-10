@@ -153,7 +153,6 @@ def status(ctx: typer.Context) -> None:
     except AxeError as e:
         render_error(command="status", error=e, opts=opts)
 
-    drift = s.mods.stale > 0 or s.mods.missing_local > 0 or s.mods.missing_remote > 0
     render_ok(
         command="status",
         data=status_envelope(s),
@@ -161,7 +160,7 @@ def status(ctx: typer.Context) -> None:
         human=lambda: print_status(s, opts),
         warnings=s.warnings,
     )
-    if drift:
+    if s.drifted:
         raise typer.Exit(int(ExitCode.DRIFT))
 
 

@@ -1,14 +1,17 @@
-"""The Status snapshot: what is true now (server + mods + warnings)."""
+"""The Status snapshot: what is true now (server + mods + build + warnings)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from axe.build import BuildStatus, empty_build_status, read_build_status
 from axe.context import Context
 from axe.errors import AxeError
-from axe.mods import ModsStatus, read_mods_status
+from axe.mods import ModsStatus, empty_mods_status, read_mods_status
+from axe.steamcmd import SpawnLike
 from axe.systemd import systemctl_show
+from axe.workshop import FetchLike
 
 
 @dataclass(frozen=True)
@@ -26,7 +29,18 @@ class Status:
     root: str
     server: ServerStatus
     mods: ModsStatus
+    build: BuildStatus
     warnings: list[str]
+
+    @property
+    def drifted(self) -> bool:
+        """Any drift at all: mods OR base build. The single UX-level signal."""
+        return (
+            self.mods.stale > 0
+            or self.mods.missing_local > 0
+            or self.mods.missing_remote > 0
+            or self.build.drifted
+        )
 
 
 def read_server_status(unit: str) -> ServerStatus:
@@ -70,20 +84,31 @@ def _compute_uptime(show: dict[str, str]) -> int | None:
     return max(0, int((datetime.now(UTC) - dt).total_seconds()))
 
 
-def read_status(ctx: Context, *, with_mods: bool = True) -> Status:
+def read_status(
+    ctx: Context,
+    *,
+    with_mods: bool = True,
+    with_build: bool = True,
+    fetch: FetchLike | None = None,
+    spawn: SpawnLike | None = None,
+) -> Status:
     warnings: list[str] = []
     server = read_server_status(ctx.config.effective_unit())
     if with_mods:
-        mods_status, mods_warnings = read_mods_status(ctx)
+        mods_status, mods_warnings = read_mods_status(ctx, fetch=fetch)
         warnings.extend(mods_warnings)
     else:
-        from axe.mods import empty_mods_status
-
         mods_status = empty_mods_status()
+    if with_build:
+        build = read_build_status(ctx, spawn=spawn)
+        warnings.extend(build.warnings)
+    else:
+        build = empty_build_status()
     return Status(
         config_path=str(ctx.config_path),
         root=str(ctx.layout.root),
         server=server,
         mods=mods_status,
+        build=build,
         warnings=warnings,
     )

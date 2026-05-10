@@ -178,9 +178,11 @@ def run_mods_check(
     return RunModsCheckResult(report=report, warnings=warnings)
 
 
-def read_mods_status(ctx: Context) -> tuple[ModsStatus, list[str]]:
+def read_mods_status(
+    ctx: Context, *, fetch: FetchLike | None = None
+) -> tuple[ModsStatus, list[str]]:
     """Compose ModsStatus + warnings from the freshness report."""
-    result = run_mods_check(ctx)
+    result = run_mods_check(ctx, fetch=fetch)
     r = result.report
     return (
         ModsStatus(

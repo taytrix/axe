@@ -129,6 +129,7 @@ def status_envelope(s: Status) -> dict[str, object]:
     return {
         "config_path": s.config_path,
         "root": s.root,
+        "drifted": s.drifted,
         "server": {
             "unit": s.server.unit,
             "active_state": s.server.active_state,
@@ -142,6 +143,11 @@ def status_envelope(s: Status) -> dict[str, object]:
             "stale": s.mods.stale,
             "missing_local": s.mods.missing_local,
             "missing_remote": s.mods.missing_remote,
+        },
+        "build": {
+            "installed_buildid": s.build.installed_buildid,
+            "latest_buildid": s.build.latest_buildid,
+            "drifted": s.build.drifted,
         },
     }
 
@@ -158,6 +164,12 @@ def print_status(s: Status, opts: OutputOptions) -> None:
         console.print(f"  pid          {s.server.main_pid}")
     if s.server.uptime_seconds is not None:
         console.print(f"  uptime       {_format_uptime(s.server.uptime_seconds)}")
+    console.print()
+    console.print("[dim]build[/dim]")
+    console.print(f"  installed    {s.build.installed_buildid or '-'}")
+    console.print(f"  latest       {s.build.latest_buildid or '-'}")
+    build_label = "[red]drifted[/red]" if s.build.drifted else "[green]current[/green]"
+    console.print(f"  state        {build_label}")
     console.print()
     console.print("[dim]mods[/dim]")
     console.print(f"  declared     {s.mods.declared}")
