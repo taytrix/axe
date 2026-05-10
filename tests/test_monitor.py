@@ -49,11 +49,29 @@ def _block_workshop_api(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mods, "get_published_file_details", fail)
 
 
+def _stub_build_status(monkeypatch: pytest.MonkeyPatch, *, drifted: bool = False) -> None:
+    """Replace read_build_status everywhere with a deterministic stub."""
+    from axe import build, status
+    from axe.build import BuildStatus
+
+    def fake(_ctx, *, spawn=None):  # noqa: ANN001 — signature mirror
+        return BuildStatus(
+            installed_buildid="100" if drifted else "200",
+            latest_buildid="200",
+            drifted=drifted,
+            warnings=[],
+        )
+
+    monkeypatch.setattr(build, "read_build_status", fake)
+    monkeypatch.setattr(status, "read_build_status", fake)
+
+
 def test_first_tick_with_drift_writes_state_and_fires_hook(
     install_with_declared: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _block_workshop_api(monkeypatch)
+    _stub_build_status(monkeypatch, drifted=False)
     ctx = load_context(install_with_declared / "axe.toml")
     seen: dict[str, str] = {}
 
@@ -78,6 +96,7 @@ def test_second_tick_with_persistent_drift_does_not_fire_hook(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _block_workshop_api(monkeypatch)
+    _stub_build_status(monkeypatch, drifted=False)
     ctx = load_context(install_with_declared / "axe.toml")
 
     first = run_monitor_tick(ctx, hook_runner=_no_op_runner)
@@ -93,6 +112,7 @@ def test_drift_to_clean_to_drift_fires_hook_twice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _block_workshop_api(monkeypatch)
+    _stub_build_status(monkeypatch, drifted=False)
     # Start with one declared id and no ACF -> drift
     (synthetic_install / "axe.toml").write_text(
         f"""\
@@ -151,6 +171,7 @@ def test_empty_hook_command_does_not_fire(
     synthetic_install: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _block_workshop_api(monkeypatch)
+    _stub_build_status(monkeypatch, drifted=False)
     (synthetic_install / "axe.toml").write_text(
         f"""\
 schema = 1
@@ -169,9 +190,38 @@ ids = [1]
 
 def test_state_persists(install_with_declared: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _block_workshop_api(monkeypatch)
+    _stub_build_status(monkeypatch, drifted=False)
     ctx = load_context(install_with_declared / "axe.toml")
     run_monitor_tick(ctx, hook_runner=_no_op_runner)
     loaded = load_state(install_with_declared / ".axe" / "state.json")
     assert loaded is not None
     assert loaded.drift is True
     assert loaded.mods.missing_local == 1
+    # state.build is always present in 0.2 (even if installed/latest unknown)
+    assert loaded.build.installed_buildid in (None, "200")
+    assert loaded.build.drifted is False
+
+
+def test_build_drift_triggers_on_drift(
+    synthetic_install: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No mods declared, but base build drifted -> on_drift fires."""
+    _block_workshop_api(monkeypatch)
+    _stub_build_status(monkeypatch, drifted=True)
+    (synthetic_install / "axe.toml").write_text(
+        f"""\
+schema = 1
+[server]
+id = "conan"
+root = "{synthetic_install}"
+[mods]
+ids = []
+[hooks]
+on_drift = "echo"
+"""
+    )
+    ctx = load_context(synthetic_install / "axe.toml")
+    outcome = run_monitor_tick(ctx, hook_runner=_no_op_runner)
+    assert outcome.state.drift is True
+    assert outcome.state.build.drifted is True
+    assert outcome.hook_fired is True

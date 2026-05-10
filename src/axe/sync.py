@@ -1,4 +1,4 @@
-"""Mod reconciliation: download stale/missing via SteamCMD; rewrite modlist atomically."""
+"""Drift reconciliation: mods + base build in one SteamCMD batch + hook lifecycle."""
 
 from __future__ import annotations
 
@@ -7,12 +7,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from axe.build import BuildStatus, read_build_status
 from axe.context import Context
 from axe.errors import AxeError
+from axe.hooks import HookRunner, run_hook
 from axe.io import atomic_write
-from axe.layout import WORKSHOP_APPID, Layout
-from axe.mods import run_mods_check
+from axe.layout import SERVER_APPID, WORKSHOP_APPID, Layout
+from axe.mods import FreshnessReport, run_mods_check
 from axe.steamcmd import (
+    AppUpdate,
     SpawnLike,
     SteamcmdAction,
     SteamcmdRequest,
@@ -30,37 +33,62 @@ class SyncOutcome:
     modlist_path: str
     modlist_changed: bool
     log_file: Path | None
+    base_build_updated: bool = False
     warnings: list[str] = field(default_factory=list)
 
 
-def sync_modlist(
+def run_sync(
     ctx: Context,
     *,
     fetch: FetchLike | None = None,
     spawn: SpawnLike | None = None,
+    hook_runner: HookRunner | None = None,
     log_file: Path | None = None,
     steamcmd_binary: str | None = None,
 ) -> SyncOutcome:
-    """Reconcile workshop content: download missing/stale; rewrite modlist."""
+    """Reconcile any drift: mods + base build. Single steamcmd invocation when work needed."""
     declared = list(ctx.config.mods.ids)
     warnings: list[str] = []
-    check = run_mods_check(ctx, fetch=fetch)
-    warnings.extend(check.warnings)
+
+    mods_result = run_mods_check(ctx, fetch=fetch)
+    warnings.extend(mods_result.warnings)
+    build = read_build_status(ctx, spawn=spawn)
+    warnings.extend(build.warnings)
+
+    # before_sync hook (strict-capable; raises AxeError('hook') on strict failure)
+    pre_warn = run_hook(
+        ctx.config.hooks.before_sync,
+        _sync_env(ctx, mods_result.report, build, "before_sync"),
+        runner=hook_runner,
+        strict=ctx.config.hooks.strict.before_sync,
+    )
+    if pre_warn:
+        warnings.append(pre_warn)
 
     to_download = [
-        item.id for item in check.report.items if item.state in ("stale", "missing_local")
+        item.id
+        for item in mods_result.report.items
+        if item.state in ("stale", "missing_local")
     ]
 
-    if not to_download:
+    actions: list[SteamcmdAction] = []
+    if build.drifted:
+        actions.append(AppUpdate(appid=SERVER_APPID, validate=False))
+    actions.extend(WorkshopDownloadItem(appid=WORKSHOP_APPID, workshop_id=w) for w in to_download)
+
+    if not actions:
         ml = _reconcile_modlist(ctx.layout, declared)
-        return SyncOutcome(
+        outcome = SyncOutcome(
             downloaded=[],
             missing=ml.missing,
             modlist_path=str(ctx.layout.modlist_txt),
             modlist_changed=ml.changed,
             log_file=None,
+            base_build_updated=False,
             warnings=warnings,
         )
+        _fire_after_sync(ctx, mods_result.report, build, outcome, hook_runner, warnings)
+        return outcome
 
     binary = (
         steamcmd_binary
@@ -73,11 +101,8 @@ def sync_modlist(
             "steamcmd binary not found; set [steamcmd].binary in axe.toml or install steamcmd",
         )
 
-    actions: list[SteamcmdAction] = [
-        WorkshopDownloadItem(appid=WORKSHOP_APPID, workshop_id=wsid) for wsid in to_download
-    ]
     out_log = log_file or reserve_steamcmd_log(ctx.layout.root, "sync")
-    outcome = run_steamcmd(
+    outcome_steamcmd = run_steamcmd(
         SteamcmdRequest(
             binary=binary,
             force_install_dir=str(ctx.layout.root),
@@ -86,26 +111,73 @@ def sync_modlist(
         spawn=spawn,
         log_file=out_log,
     )
-    if outcome.exit != 0:
-        tail = " | ".join(outcome.stderr.strip().splitlines()[-3:])
+    if outcome_steamcmd.exit != 0:
+        tail = " | ".join(outcome_steamcmd.stderr.strip().splitlines()[-3:])
         warnings.append(
-            f"steamcmd exited {outcome.exit}"
+            f"steamcmd exited {outcome_steamcmd.exit}"
             + (f"; tail: {tail}" if tail else "")
             + f"; log: {out_log}"
         )
 
     ml = _reconcile_modlist(ctx.layout, declared)
     still_missing = set(ml.missing)
-    downloaded = [wsid for wsid in to_download if wsid not in still_missing]
+    downloaded = [w for w in to_download if w not in still_missing]
 
-    return SyncOutcome(
+    outcome = SyncOutcome(
         downloaded=downloaded,
         missing=ml.missing,
         modlist_path=str(ctx.layout.modlist_txt),
         modlist_changed=ml.changed,
         log_file=out_log,
+        base_build_updated=build.drifted and outcome_steamcmd.exit == 0,
         warnings=warnings,
     )
+    _fire_after_sync(ctx, mods_result.report, build, outcome, hook_runner, warnings)
+    return outcome
+
+
+def _fire_after_sync(
+    ctx: Context,
+    report: FreshnessReport,
+    build: BuildStatus,
+    outcome: SyncOutcome,
+    runner: HookRunner | None,
+    warnings: list[str],
+) -> None:
+    warn = run_hook(
+        ctx.config.hooks.after_sync,
+        _sync_env(ctx, report, build, "after_sync", outcome=outcome),
+        runner=runner,
+        strict=False,
+    )
+    if warn:
+        warnings.append(warn)
+
+
+def _sync_env(
+    ctx: Context,
+    report: FreshnessReport,
+    build: BuildStatus,
+    event: str,
+    *,
+    outcome: SyncOutcome | None = None,
+) -> dict[str, str]:
+    env: dict[str, str] = {
+        "AXE_ROOT": str(ctx.layout.root),
+        "AXE_STATE": str(ctx.layout.root / ".axe" / "state.json"),
+        "AXE_EVENT": event,
+        "AXE_MODS_STALE": str(report.stale),
+        "AXE_MODS_MISSING_LOCAL": str(report.missing_local),
+        "AXE_MODS_MISSING_REMOTE": str(report.missing_remote),
+        "AXE_BUILD_DRIFTED": "1" if build.drifted else "0",
+        "AXE_BUILD_INSTALLED": build.installed_buildid or "",
+        "AXE_BUILD_LATEST": build.latest_buildid or "",
+    }
+    if outcome is not None:
+        env["AXE_SYNC_DOWNLOADED"] = str(len(outcome.downloaded))
+        env["AXE_SYNC_MISSING"] = str(len(outcome.missing))
+        env["AXE_SYNC_MODLIST_CHANGED"] = "1" if outcome.modlist_changed else "0"
+    return env
 
 
 @dataclass(frozen=True)
@@ -153,3 +225,7 @@ def _scan_paks(workshop_content: Path, wsid: int) -> list[Path]:
     except OSError as e:
         raise AxeError("filesystem", f"reading {directory}: {e}") from e
     return [p for p in entries if p.name.lower().endswith(".pak")]
+
+
+# Backward-compat alias: 0.1 callers used `sync_modlist`.
+sync_modlist = run_sync

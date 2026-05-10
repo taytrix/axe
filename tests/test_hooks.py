@@ -3,6 +3,9 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Mapping, Sequence
 
+import pytest
+
+from axe.errors import AxeError
 from axe.hooks import run_hook
 
 
@@ -39,6 +42,22 @@ def test_command_not_found() -> None:
     warn = run_hook("nope.sh", {}, runner=fnf)
     assert warn is not None
     assert "not found" in warn
+
+
+def test_strict_failure_raises_axe_error() -> None:
+    with pytest.raises(AxeError) as exc:
+        run_hook("echo nope", {}, runner=_fail_runner, strict=True)
+    assert exc.value.kind == "hook"
+
+
+def test_non_strict_failure_warns_only() -> None:
+    warn = run_hook("echo nope", {}, runner=_fail_runner, strict=False)
+    assert warn is not None
+    assert "exited 2" in warn
+
+
+def test_strict_success_returns_none() -> None:
+    assert run_hook("echo hi", {}, runner=_ok_runner, strict=True) is None
 
 
 def test_env_var_passed_to_runner() -> None:

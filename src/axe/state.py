@@ -28,6 +28,17 @@ class SavedMods(BaseModel):
     missing_remote: int
 
 
+class SavedBuild(BaseModel):
+    model_config = {"extra": "allow"}
+    installed_buildid: str | None = None
+    latest_buildid: str | None = None
+    drifted: bool = False
+
+
+def empty_saved_build() -> SavedBuild:
+    return SavedBuild()
+
+
 class SavedState(BaseModel):
     model_config = {"extra": "allow"}
     schema_version: int = Field(alias="schema")
@@ -35,6 +46,7 @@ class SavedState(BaseModel):
     checked_at: str  # ISO 8601 UTC
     server: SavedServer
     mods: SavedMods
+    build: SavedBuild = SavedBuild()
     drift: bool
     warnings: list[str] = []
 

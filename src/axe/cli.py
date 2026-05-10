@@ -9,8 +9,9 @@ import typer
 
 from axe import __version__
 from axe.config import Config, save_config
-from axe.context import load_context
+from axe.context import Context, load_context
 from axe.errors import AxeError, ExitCode
+from axe.hooks import run_hook
 from axe.layout import layout_at
 from axe.logs import find_latest_log, follow_log, tail_lines
 from axe.mods import has_drift, run_mods_check
@@ -28,7 +29,7 @@ from axe.output import (
     status_envelope,
 )
 from axe.status import read_status
-from axe.sync import sync_modlist
+from axe.sync import run_sync
 from axe.systemd import SystemctlVerb, systemctl_show, systemctl_verb
 from axe.units import render_monitor_units, render_server_unit
 
@@ -166,11 +167,11 @@ def status(ctx: typer.Context) -> None:
 
 @app.command()
 def sync(ctx: typer.Context) -> None:
-    """Reconcile mods and modlist."""
+    """Reconcile mods and base build in one cycle."""
     opts = _opts(ctx)
     try:
         context = load_context(_config_path(ctx))
-        outcome = sync_modlist(context)
+        outcome = run_sync(context)
     except AxeError as e:
         render_error(command="sync", error=e, opts=opts)
 
@@ -181,6 +182,7 @@ def sync(ctx: typer.Context) -> None:
             "missing": outcome.missing,
             "modlist_path": outcome.modlist_path,
             "modlist_changed": outcome.modlist_changed,
+            "base_build_updated": outcome.base_build_updated,
             "log_file": str(outcome.log_file) if outcome.log_file else None,
         },
         opts=opts,
@@ -323,8 +325,77 @@ def server_down(ctx: typer.Context) -> None:
 
 @server_app.command("restart")
 def server_restart(ctx: typer.Context) -> None:
-    """systemctl --user restart <unit>"""
-    _server_lifecycle(ctx, "restart", "server restart")
+    """systemctl --user restart <unit> wrapped with before_/after_restart hooks."""
+    opts = _opts(ctx)
+    warnings: list[str] = []
+    try:
+        context = load_context(_config_path(ctx))
+        old_pid = _server_main_pid(context.config.effective_unit())
+
+        pre = run_hook(
+            context.config.hooks.before_restart,
+            env=_restart_env(context, "before_restart", old_pid=old_pid),
+            strict=context.config.hooks.strict.before_restart,
+        )
+        if pre:
+            warnings.append(pre)
+
+        result = systemctl_verb(context.config.effective_unit(), "restart")
+        new_pid = _server_main_pid(context.config.effective_unit())
+
+        post = run_hook(
+            context.config.hooks.after_restart,
+            env=_restart_env(context, "after_restart", old_pid=old_pid, new_pid=new_pid),
+            strict=False,
+        )
+        if post:
+            warnings.append(post)
+    except AxeError as e:
+        render_error(command="server restart", error=e, opts=opts)
+
+    render_ok(
+        command="server restart",
+        data={
+            "unit": result.unit,
+            "verb": result.verb,
+            "old_pid": old_pid,
+            "new_pid": new_pid,
+        },
+        opts=opts,
+        human=lambda: print(f"{result.verb} {result.unit}: ok"),
+        warnings=warnings,
+    )
+
+
+def _server_main_pid(unit: str) -> int | None:
+    try:
+        show = systemctl_show(unit)
+    except AxeError:
+        return None
+    try:
+        pid = int(show.get("MainPID", "0"))
+    except ValueError:
+        return None
+    return pid if pid > 0 else None
+
+
+def _restart_env(
+    ctx: Context,
+    event: str,
+    *,
+    old_pid: int | None = None,
+    new_pid: int | None = None,
+) -> dict[str, str]:
+    env: dict[str, str] = {
+        "AXE_ROOT": str(ctx.layout.root),
+        "AXE_STATE": str(ctx.layout.root / ".axe" / "state.json"),
+        "AXE_EVENT": event,
+    }
+    if old_pid is not None:
+        env["AXE_RESTART_OLD_PID"] = str(old_pid)
+    if new_pid is not None:
+        env["AXE_RESTART_NEW_PID"] = str(new_pid)
+    return env
 
 
 @server_app.command("status")

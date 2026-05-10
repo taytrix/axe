@@ -28,11 +28,20 @@ class ModsConfig(BaseModel):
     ids: list[int] = Field(default_factory=list)
 
 
+class HooksStrictConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+    before_sync: bool = False
+    before_restart: bool = False
+
+
 class HooksConfig(BaseModel):
     model_config = {"extra": "forbid"}
     on_drift: str = ""
     before_sync: str = ""
     after_sync: str = ""
+    before_restart: str = ""
+    after_restart: str = ""
+    strict: HooksStrictConfig = HooksStrictConfig()
 
 
 class Config(BaseModel):

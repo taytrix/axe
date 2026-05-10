@@ -26,17 +26,13 @@ def run_monitor_tick(
     hook_runner: HookRunner | None = None,
     now: datetime | None = None,
 ) -> MonitorOutcome:
-    """One tick: read status -> write state.json -> fire on_drift if drift is new."""
+    """Read unified status (mods + build), write state.json, fire on_drift on edge."""
     when = now or datetime.now(UTC)
     path = state_path(ctx.layout.root)
     prev = load_state(path)
 
-    snapshot = read_status(ctx, with_mods=True)
-    drift = (
-        snapshot.mods.stale > 0
-        or snapshot.mods.missing_local > 0
-        or snapshot.mods.missing_remote > 0
-    )
+    snapshot = read_status(ctx, with_mods=True, with_build=True)
+    drift = snapshot.drifted
     warnings = list(snapshot.warnings)
 
     state = SavedState.model_validate(
@@ -56,6 +52,11 @@ def run_monitor_tick(
                 "stale": snapshot.mods.stale,
                 "missing_local": snapshot.mods.missing_local,
                 "missing_remote": snapshot.mods.missing_remote,
+            },
+            "build": {
+                "installed_buildid": snapshot.build.installed_buildid,
+                "latest_buildid": snapshot.build.latest_buildid,
+                "drifted": snapshot.build.drifted,
             },
             "drift": drift,
             "warnings": warnings,
@@ -77,8 +78,12 @@ def run_monitor_tick(
                     "AXE_MODS_STALE": str(state.mods.stale),
                     "AXE_MODS_MISSING_LOCAL": str(state.mods.missing_local),
                     "AXE_MODS_MISSING_REMOTE": str(state.mods.missing_remote),
+                    "AXE_BUILD_DRIFTED": "1" if snapshot.build.drifted else "0",
+                    "AXE_BUILD_INSTALLED": snapshot.build.installed_buildid or "",
+                    "AXE_BUILD_LATEST": snapshot.build.latest_buildid or "",
                 },
                 runner=hook_runner,
+                strict=False,
             )
             if hook_warning:
                 state = state.model_copy(update={"warnings": [*state.warnings, hook_warning]})
