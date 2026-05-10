@@ -1,6 +1,6 @@
 {
   "name": "@taytrix/axe",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0",
   "description": "Conan Exiles Enhanced dedicated-server CLI",
   "private": true,
   "type": "module",
