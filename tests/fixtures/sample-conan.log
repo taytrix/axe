@@ -1,0 +1,20 @@
+[2026.05.10-12.00.00:000][  0]LogInit: Display: Running engine for game: ConanSandbox
+[2026.05.10-12.00.00:100][  0]LogInit: Display: RandInit(123456) SRandInit(789012)
+[2026.05.10-12.00.00:200][  0]LogInit: Display: Engine Version: 4.27.2-0+UE4
+[2026.05.10-12.00.01:000][  0]LogInit: Display: Working Directory: /srv/conan
+[2026.05.10-12.00.01:500][  0]LogInit: Display: Engine is initialized. Leaving FEngineLoop::Init()
+[2026.05.10-12.00.02:000][  0]LogLoad: Display: ConanSandbox dedicated server starting up
+[2026.05.10-12.00.02:500][  0]LogServerStats: Started session
+[2026.05.10-12.00.03:000][  0]LogModSystem: Display: 4 mods declared, 4 loaded
+[2026.05.10-12.00.04:000][  0]LogServerStats: Display: Server listening on port 7777
+[2026.05.10-12.00.04:500][  0]LogRcon: Display: RCON enabled on port 25575
+[2026.05.10-12.00.05:000][  0]LogServer: Display: World ready
+[2026.05.10-12.00.06:000][ 60]LogServer: Display: tick 1 stats=ok
+[2026.05.10-12.00.07:000][120]LogServer: Display: tick 2 stats=ok
+[2026.05.10-12.00.08:000][180]LogServer: Display: tick 3 stats=ok
+[2026.05.10-12.00.09:000][240]LogServer: Display: tick 4 stats=ok
+[2026.05.10-12.00.10:000][300]LogServer: Display: tick 5 stats=ok
+[2026.05.10-12.00.11:000][360]LogPlayer: Display: player Conan connected
+[2026.05.10-12.00.12:000][420]LogServer: Display: tick 6 stats=ok
+[2026.05.10-12.00.13:000][480]LogServer: Display: tick 7 stats=ok
+[2026.05.10-12.00.14:000][540]LogServer: Display: tick 8 stats=ok

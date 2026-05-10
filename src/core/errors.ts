@@ -18,7 +18,8 @@ export type AxeErrorKind =
   | 'filesystem'
   | 'workshop_api'
   | 'acf_parse'
-  | 'lifecycle';
+  | 'lifecycle'
+  | 'rcon';
 
 export class AxeError extends Error {
   readonly kind: AxeErrorKind;
@@ -39,6 +40,7 @@ export class AxeError extends Error {
       case 'filesystem':
         return ExitCode.Filesystem;
       case 'workshop_api':
+      case 'rcon':
         return ExitCode.Network;
       case 'lifecycle':
         return ExitCode.Lifecycle;

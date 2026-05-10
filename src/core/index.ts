@@ -19,6 +19,7 @@ export {
 export { type Context, loadContext } from './context.ts';
 export { type Finding, type Level, type Report, runDoctor, worstFinding } from './doctor.ts';
 export { AxeError, type AxeErrorKind, ExitCode } from './errors.ts';
+export { readServerSettings, type ServerSettings } from './ini.ts';
 export {
   checkServerBuild,
   type InstallData,
@@ -42,6 +43,7 @@ export {
   startServer,
   stopServer,
 } from './lifecycle.ts';
+export { findLatestLog, type TailOptions, tailLog } from './logs.ts';
 export {
   checkModFreshness,
   type FreshnessReport,
@@ -64,6 +66,13 @@ export {
   findRunningServer,
   type RunningServer,
 } from './process.ts';
+export {
+  connectRcon,
+  decodePackets,
+  encodePacket,
+  type RconConnection,
+  type RconOptions,
+} from './rcon.ts';
 export {
   buildArgv,
   type RunSteamcmdOptions,
