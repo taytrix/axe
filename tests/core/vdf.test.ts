@@ -55,4 +55,29 @@ describe('parseVdf', () => {
   test('throws AxeError(acf_parse) on unterminated quoted string', () => {
     expect(() => parseVdf('"unterminated')).toThrow(AxeError);
   });
+
+  test('decodes \\\\ escape in quoted string to a single backslash', () => {
+    const text = `"Outer"
+{
+  "path" "C:\\\\Users\\\\Tay"
+}`;
+    const tree = parseVdf(text);
+    expect(tree.get('path')).toBe('C:\\Users\\Tay');
+  });
+
+  test('preserves multiple top-level pairs after wrapper unwrap', () => {
+    const text = `"AppWorkshop"
+{
+  "appid"  "440900"
+  "WorkshopItemsInstalled"
+  {
+    "12345"  { "manifest" "1" "timeupdated" "2" }
+  }
+  "SizeOnDisk"  "0"
+}`;
+    const tree = parseVdf(text);
+    expect(tree.get('appid')).toBe('440900');
+    expect(tree.get('WorkshopItemsInstalled')).toBeInstanceOf(Map);
+    expect(tree.get('SizeOnDisk')).toBe('0');
+  });
 });

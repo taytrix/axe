@@ -1,6 +1,5 @@
 export {
   type AcfFile,
-  isStale,
   type ManifestId,
   type ModManifest,
   parseAcf,
@@ -16,6 +15,7 @@ export {
   saveConfig,
   serializeConfig,
 } from './config.ts';
+export { type Context, loadContext } from './context.ts';
 export { type Finding, type Level, type Report, runDoctor, worstFinding } from './doctor.ts';
 export { AxeError, type AxeErrorKind, ExitCode } from './errors.ts';
 export { atomicWrite } from './io.ts';
@@ -24,9 +24,13 @@ export {
   checkModFreshness,
   type FreshnessReport,
   type FreshnessState,
+  hasDrift,
   type ModFreshness,
+  type RunModsCheckOptions,
+  type RunModsCheckResult,
+  runModsCheck,
 } from './mods.ts';
 export { probe } from './probe.ts';
 export type { Platform } from './types.ts';
 export { parseVdf, type VdfObject, type VdfValue } from './vdf.ts';
-export { getPublishedFileDetails, type WorkshopItem } from './workshop.ts';
+export { type FetchLike, getPublishedFileDetails, type WorkshopItem } from './workshop.ts';

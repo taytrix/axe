@@ -1,5 +1,9 @@
+import { readFile } from 'node:fs/promises';
 import type { AcfFile, ManifestId, WorkshopId } from './acf.ts';
-import type { WorkshopItem } from './workshop.ts';
+import { parseAcf } from './acf.ts';
+import { AxeError } from './errors.ts';
+import type { Layout } from './layout.ts';
+import { type FetchLike, getPublishedFileDetails, type WorkshopItem } from './workshop.ts';
 
 export type FreshnessState = 'current' | 'stale' | 'missing_local' | 'missing_remote' | 'unmanaged';
 
@@ -127,4 +131,75 @@ function makeMissingLocal(id: WorkshopId, remoteEntry: WorkshopItem | undefined)
     local_time_updated: null,
     latest_time_updated: remoteEntry?.time_updated ?? null,
   };
+}
+
+export type RunModsCheckOptions = {
+  fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+};
+
+export type RunModsCheckResult = {
+  report: FreshnessReport;
+  warnings: string[];
+};
+
+/**
+ * Orchestrates a read-only mod-freshness check.
+ *
+ * Reads the layout's workshop ACF (tolerates ENOENT), queries the Workshop
+ * API for declared IDs (catches `workshop_api` errors and falls back to
+ * ACF-only with a warning), runs `checkModFreshness`, and returns the
+ * report plus any accumulated warnings.
+ *
+ * Pure-ish: only IO is the network and the filesystem read. No console
+ * output, no `process.exitCode` setting. Caller decides what to do with
+ * the report (render, exit-code, etc.).
+ */
+export async function runModsCheck(
+  layout: Layout,
+  declared: readonly WorkshopId[],
+  options: RunModsCheckOptions = {},
+): Promise<RunModsCheckResult> {
+  const local = await readAcf(layout.workshop_acf);
+
+  const warnings: string[] = [];
+  let remote: WorkshopItem[] = [];
+  if (declared.length > 0) {
+    try {
+      remote = await getPublishedFileDetails(declared, options);
+    } catch (e) {
+      if (e instanceof AxeError && e.kind === 'workshop_api') {
+        warnings.push(`workshop API unreachable: ${e.message}; using ACF latest_* only`);
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  const report = checkModFreshness(declared, local, remote);
+  return { report, warnings };
+}
+
+/**
+ * Pure policy: returns true if the freshness report shows actionable drift.
+ *
+ * `unmanaged` does NOT trigger drift — installed-but-not-declared is
+ * interesting but not actionable; agents shouldn't treat it as "needs sync."
+ */
+export function hasDrift(report: FreshnessReport): boolean {
+  return report.stale > 0 || report.missing_local > 0 || report.missing_remote > 0;
+}
+
+async function readAcf(path: string): Promise<AcfFile> {
+  let text: string;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return { mods: new Map() };
+    }
+    throw new AxeError('filesystem', `reading ${path}: ${(e as Error).message}`);
+  }
+  return parseAcf(text);
 }

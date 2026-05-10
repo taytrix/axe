@@ -21,12 +21,27 @@ export type VdfObject = Map<string, VdfValue>;
 
 type Token = { kind: 'str'; value: string } | { kind: 'open' } | { kind: 'close' };
 
-function tokenize(text: string): Token[] {
-  const tokens: Token[] = [];
-  let i = 0;
+const ESCAPES: Record<string, string> = {
+  n: '\n',
+  t: '\t',
+  '"': '"',
+  '\\': '\\',
+};
+
+function isWhitespace(c: string): boolean {
+  return c === ' ' || c === '\t' || c === '\n' || c === '\r';
+}
+
+function isStructural(c: string): boolean {
+  return c === '{' || c === '}' || c === '"';
+}
+
+/** Advance past whitespace and `//` line comments; return the next non-skip index. */
+function skipWhitespaceAndComments(text: string, start: number): number {
+  let i = start;
   while (i < text.length) {
-    const c = text[i];
-    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+    const c = text[i] ?? '';
+    if (isWhitespace(c)) {
       i++;
       continue;
     }
@@ -34,6 +49,51 @@ function tokenize(text: string): Token[] {
       while (i < text.length && text[i] !== '\n') i++;
       continue;
     }
+    return i;
+  }
+  return i;
+}
+
+/** Read a `"..."` quoted string starting at `text[start] === '"'`. */
+function readQuotedString(text: string, start: number): { value: string; next: number } {
+  let i = start + 1; // skip opening "
+  let s = '';
+  while (i < text.length && text[i] !== '"') {
+    if (text[i] === '\\' && i + 1 < text.length) {
+      const c = text[i + 1] ?? '';
+      s += ESCAPES[c] ?? c;
+      i += 2;
+    } else {
+      s += text[i];
+      i++;
+    }
+  }
+  if (i >= text.length) {
+    throw new AxeError('acf_parse', 'unterminated quoted string');
+  }
+  return { value: s, next: i + 1 }; // skip closing "
+}
+
+/** Read an unquoted string (until whitespace or structural char). */
+function readUnquotedString(text: string, start: number): { value: string; next: number } {
+  let i = start;
+  let s = '';
+  while (i < text.length) {
+    const c = text[i] ?? '';
+    if (isWhitespace(c) || isStructural(c)) break;
+    s += c;
+    i++;
+  }
+  return { value: s, next: i };
+}
+
+function tokenize(text: string): Token[] {
+  const tokens: Token[] = [];
+  let i = 0;
+  while (i < text.length) {
+    i = skipWhitespaceAndComments(text, i);
+    if (i >= text.length) break;
+    const c = text[i] ?? '';
     if (c === '{') {
       tokens.push({ kind: 'open' });
       i++;
@@ -44,54 +104,10 @@ function tokenize(text: string): Token[] {
       i++;
       continue;
     }
-    if (c === '"') {
-      i++;
-      let s = '';
-      while (i < text.length && text[i] !== '"') {
-        if (text[i] === '\\' && i + 1 < text.length) {
-          const next = text[i + 1] ?? '';
-          s +=
-            next === 'n'
-              ? '\n'
-              : next === 't'
-                ? '\t'
-                : next === '"'
-                  ? '"'
-                  : next === '\\'
-                    ? '\\'
-                    : next;
-          i += 2;
-        } else {
-          s += text[i];
-          i++;
-        }
-      }
-      if (i >= text.length) {
-        throw new AxeError('acf_parse', 'unterminated quoted string');
-      }
-      i++; // closing quote
-      tokens.push({ kind: 'str', value: s });
-      continue;
-    }
-    // unquoted string: read until whitespace or structural char
-    let s = '';
-    while (i < text.length) {
-      const ch = text[i] ?? '';
-      if (
-        ch === ' ' ||
-        ch === '\t' ||
-        ch === '\n' ||
-        ch === '\r' ||
-        ch === '{' ||
-        ch === '}' ||
-        ch === '"'
-      ) {
-        break;
-      }
-      s += ch;
-      i++;
-    }
-    tokens.push({ kind: 'str', value: s });
+    const reader = c === '"' ? readQuotedString : readUnquotedString;
+    const { value, next } = reader(text, i);
+    tokens.push({ kind: 'str', value });
+    i = next;
   }
   return tokens;
 }

@@ -38,7 +38,7 @@ export function registerInit(program: Command): void {
     .option('--dry-run', 'print what would be written; do not write the file')
     .argument('[root]', 'server install root to set as server.root (default: cwd)')
     .action(async (rootArg: string | undefined, options: InitFlags, cmd: Command) => {
-      const out = readOutputOptions(cmd);
+      const opts = readOutputOptions(cmd);
       const configPath = readGlobalConfigPath(cmd);
 
       try {
@@ -62,20 +62,25 @@ export function registerInit(program: Command): void {
             platform,
             dry_run: true,
           };
-          renderOk('init', data, out, () => {
-            console.log(pc.dim(`# would write to ${configPath}:`));
-            console.log(serializeConfig(config));
+          renderOk({
+            command: 'init',
+            data,
+            opts,
+            human: () => {
+              console.log(pc.dim(`# would write to ${configPath}:`));
+              console.log(serializeConfig(config));
+            },
           });
           return;
         }
 
         if (await pathExists(configPath)) {
-          renderFail(
-            'init',
-            ExitCode.Config,
-            `${configPath} already exists; refusing to overwrite`,
-            out,
-          );
+          renderFail({
+            command: 'init',
+            code: ExitCode.Config,
+            message: `${configPath} already exists; refusing to overwrite`,
+            opts,
+          });
           return;
         }
 
@@ -88,15 +93,20 @@ export function registerInit(program: Command): void {
           platform,
           dry_run: false,
         };
-        renderOk('init', data, out, () => {
-          console.log(`${pc.green(pc.bold('wrote'))} ${configPath}`);
-          console.log(`  ${pc.dim('server.id =')} ${config.server.id}`);
-          console.log(`  ${pc.dim('server.root =')} ${config.server.root}`);
-          if (platform) console.log(`  ${pc.dim('platform =')} ${platform}`);
+        renderOk({
+          command: 'init',
+          data,
+          opts,
+          human: () => {
+            console.log(`${pc.green(pc.bold('wrote'))} ${configPath}`);
+            console.log(`  ${pc.dim('server.id =')} ${config.server.id}`);
+            console.log(`  ${pc.dim('server.root =')} ${config.server.root}`);
+            if (platform) console.log(`  ${pc.dim('platform =')} ${platform}`);
+          },
         });
       } catch (e) {
         if (e instanceof AxeError) {
-          renderError('init', e, out);
+          renderError({ command: 'init', error: e, opts });
           return;
         }
         throw e;

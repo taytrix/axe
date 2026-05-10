@@ -64,7 +64,10 @@ export function configFromRoot(id: string, root: string): Config {
 export function parseConfig(text: string): Config {
   let raw: unknown;
   try {
-    raw = toml.parse(text);
+    // `asNeeded` keeps small integers (e.g. ports, 10-digit workshop IDs) as
+    // `number` while promoting >2^53 values (manifest IDs) to `bigint`. Without
+    // this, smol-toml errors out on any integer literal that exceeds JS safe-int.
+    raw = toml.parse(text, { integersAsBigInt: 'asNeeded' });
   } catch (e) {
     throw new AxeError('config', `parsing axe.toml: ${(e as Error).message}`);
   }

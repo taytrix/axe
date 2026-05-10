@@ -78,46 +78,18 @@ describe('axe mods', () => {
     expect(env.data.items[3].id).toBe('3721991191');
   });
 
-  test('mods check with offline fallback emits warnings field', async () => {
+  test('mods check exits Drift (50) when ACF manifest != latest_manifest', async () => {
     const { root, configPath } = await syntheticInstall(FIXTURE_IDS);
-    // simulate API unreachable by pointing at a black-hole address with short timeout
-    // we monkey-patch by setting a bogus DNS via the process env? simpler: set a bad
-    // proxy env... instead, rely on AbortController by using a local server that hangs.
-    // Pragmatic: use --network=none isn't available here; instead, use a SIGABRT-equivalent
-    // by setting a TLS-impossible URL is hard too. So test the fallback path indirectly:
-    // directly invoke checkModFreshness with empty remote (covered in core tests) and
-    // assert here that the CLI surfaces the warnings field when the API fails. Easiest:
-    // override fetch by using a tiny in-process server on a dead port.
-    // Strategy: set an HTTP_PROXY env var to a port nothing listens on. Bun's fetch
-    // honors HTTP_PROXY for http/https.
-    const { stdout, exit } = await runAxe(
-      ['--json', '--config', configPath, 'mods', 'check'],
-      root,
-      { HTTP_PROXY: 'http://127.0.0.1:1', HTTPS_PROXY: 'http://127.0.0.1:1' },
-    );
-    // expected: HTTP fetch fails -> warnings present + ACF-only fallback -> exit 0 (current per ACF)
-    expect(exit).toBe(0);
-    const env = JSON.parse(stdout);
-    expect(env.ok).toBe(true);
-    expect(Array.isArray(env.warnings)).toBe(true);
-    expect(env.warnings.length).toBeGreaterThan(0);
-    expect(env.warnings[0]).toContain('workshop API unreachable');
-    // ACF-only fallback: all 4 marked current (installed time matches latest_time in ACF)
-    expect(env.data.current).toBe(4);
-  });
-
-  test('mods check exits Drift (50) when synthetic stale ACF', async () => {
-    const { root, configPath } = await syntheticInstall(FIXTURE_IDS);
-    // Mutate ACF so latest_time_updated is bumped past installed time.
+    // Drift triggered locally via manifest mismatch, so the verdict is independent
+    // of the live Workshop API response. We still go offline for test isolation —
+    // network state shouldn't change CLI exit code in a unit test.
     const acfPath = join(root, 'steamapps/workshop/appworkshop_440900.acf');
     const text = await Bun.file(acfPath).text();
-    // Bump every latest_timeupdated by 100 seconds.
     const bumped = text.replace(
-      /"latest_timeupdated"\s+"(\d+)"/g,
-      (_full, ts) => `"latest_timeupdated"\t\t"${Number.parseInt(ts, 10) + 100}"`,
+      /"latest_manifest"\s+"(\d+)"/g,
+      (_full, m) => `"latest_manifest"\t\t"${BigInt(m) + 1n}"`,
     );
     await writeFile(acfPath, bumped);
-    // Force offline fallback so we judge by ACF latest_* alone.
     const { stdout, exit } = await runAxe(
       ['--json', '--config', configPath, 'mods', 'check'],
       root,

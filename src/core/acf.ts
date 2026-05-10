@@ -20,8 +20,8 @@ const NUMERIC_ID = /^\d+$/;
  *
  * Only `WorkshopItemsInstalled.<id>` and `WorkshopItemDetails.<id>` are
  * extracted; everything else is ignored. Tolerant: missing details fall back
- * to installed values; non-numeric IDs are skipped; missing fields default
- * to `0n` / `0`.
+ * to installed values; non-numeric IDs are skipped; missing/invalid fields
+ * default to `0n` / `0`.
  */
 export function parseAcf(text: string): AcfFile {
   const tree = parseVdf(text);
@@ -38,12 +38,8 @@ export function parseAcf(text: string): AcfFile {
     const time_updated = parseInt10(fields.get('timeupdated'));
 
     const detailFields = details.get(idStr);
-    const latest_manifest = detailFields
-      ? parseBigIntFallback(detailFields.get('latest_manifest'), manifest)
-      : manifest;
-    const latest_time_updated = detailFields
-      ? parseInt10Fallback(detailFields.get('latest_timeupdated'), time_updated)
-      : time_updated;
+    const latest_manifest = parseBigInt(detailFields?.get('latest_manifest'), manifest);
+    const latest_time_updated = parseInt10(detailFields?.get('latest_timeupdated'), time_updated);
 
     mods.set(workshop_id, {
       workshop_id,
@@ -55,11 +51,6 @@ export function parseAcf(text: string): AcfFile {
   }
 
   return { mods };
-}
-
-/** Pure helper: true when Steam knows about a newer version than what's installed. */
-export function isStale(m: ModManifest): boolean {
-  return m.latest_time_updated > m.time_updated || m.latest_manifest !== m.manifest;
 }
 
 function collectSection(tree: VdfObject, name: string): Map<string, Map<string, string>> {
@@ -81,34 +72,32 @@ function isObject(v: VdfValue | undefined): v is VdfObject {
   return v instanceof Map;
 }
 
-function parseBigInt(s: string | undefined): ManifestId {
-  if (!s) return 0n;
+/**
+ * Parse a string as a non-negative bigint. If `fallback` is provided, returns
+ * it for missing input or zero-valued / unparseable strings; otherwise returns
+ * `0n` for those cases.
+ */
+function parseBigInt(s: string | undefined, fallback?: bigint): bigint {
+  if (s === undefined || s === '') return fallback ?? 0n;
+  let parsed: bigint;
   try {
-    return BigInt(s);
+    parsed = BigInt(s);
   } catch {
-    return 0n;
+    return fallback ?? 0n;
   }
+  if (parsed === 0n && fallback !== undefined) return fallback;
+  return parsed;
 }
 
-function parseBigIntFallback(s: string | undefined, fallback: ManifestId): ManifestId {
-  if (!s) return fallback;
-  try {
-    const v = BigInt(s);
-    return v === 0n ? fallback : v;
-  } catch {
-    return fallback;
-  }
-}
-
-function parseInt10(s: string | undefined): number {
-  if (!s) return 0;
+/**
+ * Parse a string as a finite int (base 10). If `fallback` is provided, returns
+ * it for missing input or zero/non-finite results; otherwise returns `0` for
+ * those cases.
+ */
+function parseInt10(s: string | undefined, fallback?: number): number {
+  if (s === undefined || s === '') return fallback ?? 0;
   const n = Number.parseInt(s, 10);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function parseInt10Fallback(s: string | undefined, fallback: number): number {
-  if (!s) return fallback;
-  const n = Number.parseInt(s, 10);
-  if (!Number.isFinite(n) || n === 0) return fallback;
+  if (!Number.isFinite(n)) return fallback ?? 0;
+  if (n === 0 && fallback !== undefined) return fallback;
   return n;
 }

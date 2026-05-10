@@ -9,10 +9,13 @@ export function registerVersion(program: Command): void {
     .command('version')
     .description('print version information')
     .action((_options: unknown, cmd: Command) => {
-      const out = readOutputOptions(cmd);
+      const opts = readOutputOptions(cmd);
       const data: VersionData = { version: pkg.version };
-      renderOk('version', data, out, () => {
-        console.log(`axe ${pkg.version}`);
+      renderOk({
+        command: 'version',
+        data,
+        opts,
+        human: () => console.log(`axe ${pkg.version}`),
       });
     });
 }

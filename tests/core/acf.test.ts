@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isStale, parseAcf } from '../../src/core/acf.ts';
+import { parseAcf } from '../../src/core/acf.ts';
 
 const SAMPLE = readFileSync(join(process.cwd(), 'tests/fixtures/sample-workshop.acf'), 'utf8');
 
 describe('parseAcf', () => {
-  test('parses sample fixture (4 mods, all not stale)', () => {
+  test('parses sample fixture (4 mods, all installed == latest)', () => {
     const acf = parseAcf(SAMPLE);
     expect(acf.mods.size).toBe(4);
     for (const m of acf.mods.values()) {
@@ -15,17 +15,9 @@ describe('parseAcf', () => {
       expect(m.time_updated).toBeGreaterThan(0);
       expect(m.latest_manifest).toBeGreaterThan(0n);
       expect(m.latest_time_updated).toBeGreaterThan(0);
-      expect(isStale(m)).toBe(false);
+      expect(m.manifest).toBe(m.latest_manifest);
+      expect(m.time_updated).toBe(m.latest_time_updated);
     }
-  });
-
-  test('isStale returns true after synthetic latest_time_updated bump', () => {
-    const acf = parseAcf(SAMPLE);
-    const id = [...acf.mods.keys()][0] as bigint;
-    const m = acf.mods.get(id);
-    if (!m) throw new Error('expected mod present');
-    const bumped = { ...m, latest_time_updated: m.time_updated + 10_000 };
-    expect(isStale(bumped)).toBe(true);
   });
 
   test('tolerates missing WorkshopItemDetails (falls back to installed values)', () => {

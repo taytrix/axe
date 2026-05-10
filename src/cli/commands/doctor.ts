@@ -1,12 +1,5 @@
 import type { Command } from 'commander';
-import {
-  AxeError,
-  ExitCode,
-  loadConfig,
-  probe,
-  runDoctor,
-  worstFinding,
-} from '../../core/index.ts';
+import { AxeError, ExitCode, loadContext, runDoctor, worstFinding } from '../../core/index.ts';
 import {
   readGlobalConfigPath,
   readOutputOptions,
@@ -20,22 +13,25 @@ export function registerDoctor(program: Command): void {
     .command('doctor')
     .description('run a series of read-only sanity checks against the install')
     .action(async (_options: unknown, cmd: Command) => {
-      const out = readOutputOptions(cmd);
+      const opts = readOutputOptions(cmd);
       const configPath = readGlobalConfigPath(cmd);
-
       try {
-        const config = await loadConfig(configPath);
-        const layout = await probe(config.server.root);
+        const { config, layout } = await loadContext(configPath);
         const report = await runDoctor(config, layout);
 
-        renderOk('doctor', report, out, () => renderReport(report, out));
+        renderOk({
+          command: 'doctor',
+          data: report,
+          opts,
+          human: () => renderReport(report, opts),
+        });
 
         if (worstFinding(report) === 'error') {
           process.exitCode = ExitCode.Discovery;
         }
       } catch (e) {
         if (e instanceof AxeError) {
-          renderError('doctor', e, out);
+          renderError({ command: 'doctor', error: e, opts });
           return;
         }
         throw e;

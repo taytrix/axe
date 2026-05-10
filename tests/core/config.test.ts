@@ -67,4 +67,14 @@ describe('configFromRoot + serializeConfig', () => {
     const parsed = parseConfig(text);
     expect(parsed.mods.ids).toEqual([11n, 22n, 3_721_090_132n]);
   });
+
+  test('round-trips a 19-digit (manifest-sized) bigint without precision loss', () => {
+    const cfg = configFromRoot('x', '/tmp');
+    const manifestSized = 3_915_417_666_713_453_363n; // > 2^53
+    cfg.mods.ids = [manifestSized];
+    const text = serializeConfig(cfg);
+    const parsed = parseConfig(text);
+    expect(parsed.mods.ids).toEqual([manifestSized]);
+    expect(parsed.mods.ids[0]).toBe(manifestSized);
+  });
 });
