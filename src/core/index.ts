@@ -86,6 +86,13 @@ export {
   type RconOptions,
 } from './rcon.ts';
 export {
+  defaultInstallPath,
+  defaultUnitName,
+  renderSystemdUserUnit,
+  type ServiceMode,
+  type SystemdUserUnitInput,
+} from './service.ts';
+export {
   buildArgv,
   type RunSteamcmdOptions,
   runSteamcmd,
