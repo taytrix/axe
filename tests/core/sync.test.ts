@@ -56,7 +56,7 @@ function configFor(root: string, ids: bigint[]) {
     schema: 1 as const,
     server: { id: 'test', root, launch_args: ['ConanSandbox', '-log'] },
     network: { game_port: 7777, steam_port: 7778, rcon_port: 25575 },
-    update: { poll_interval: '5m', branch: 'public' },
+    update: { poll_interval: '5m', branch: 'public', build_check_every: 12 },
     mods: { ids, restart_on_change: true },
     steamcmd: { binary: STUB },
   };

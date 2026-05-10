@@ -51,7 +51,7 @@ async function freshInstall(): Promise<{ root: string; procRoot: string; config:
     schema: 1,
     server: { id: 'test', root, launch_args: [] }, // no extra args; stub ignores them
     network: { game_port: 7777, steam_port: 7778, rcon_port: 25575 },
-    update: { poll_interval: '5m', branch: 'public' },
+    update: { poll_interval: '5m', branch: 'public', build_check_every: 12 },
     mods: { ids: [], restart_on_change: true },
   };
 
@@ -192,7 +192,7 @@ describe('platform guards', () => {
       schema: 1,
       server: { id: 'test', root: 'C:/srv/conan', launch_args: [] },
       network: { game_port: 7777, steam_port: 7778, rcon_port: 25575 },
-      update: { poll_interval: '5m', branch: 'public' },
+      update: { poll_interval: '5m', branch: 'public', build_check_every: 12 },
       mods: { ids: [], restart_on_change: true },
     };
     await expect(startServer(config, layout)).rejects.toBeInstanceOf(AxeError);

@@ -17,7 +17,19 @@ export {
   serializeConfig,
 } from './config.ts';
 export { type Context, loadContext } from './context.ts';
+export {
+  type DaemonBuild,
+  type DaemonState,
+  type DaemonTickOptions,
+  loadDaemonState,
+  type RunDaemonLoopOptions,
+  readDaemonPid,
+  runDaemonLoop,
+  runDaemonTick,
+  saveDaemonState,
+} from './daemon.ts';
 export { type Finding, type Level, type Report, runDoctor, worstFinding } from './doctor.ts';
+export { parseDuration } from './duration.ts';
 export { AxeError, type AxeErrorKind, ExitCode } from './errors.ts';
 export { readServerSettings, type ServerSettings } from './ini.ts';
 export {

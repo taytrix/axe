@@ -29,7 +29,7 @@ function configFor(root: string): Config {
     schema: 1,
     server: { id: 'test', root, launch_args: ['ConanSandbox', '-log'] },
     network: { game_port: 7777, steam_port: 7778, rcon_port: 25575 },
-    update: { poll_interval: '5m', branch: 'public' },
+    update: { poll_interval: '5m', branch: 'public', build_check_every: 12 },
     mods: { ids: [], restart_on_change: true },
     steamcmd: { binary: STUB },
   };
@@ -72,7 +72,7 @@ describe('runServerInstall', () => {
       schema: 1,
       server: { id: 'test', root, launch_args: [] },
       network: { game_port: 7777, steam_port: 7778, rcon_port: 25575 },
-      update: { poll_interval: '5m', branch: 'public' },
+      update: { poll_interval: '5m', branch: 'public', build_check_every: 12 },
       mods: { ids: [], restart_on_change: true },
     };
     // Mock-out PATH so Bun.which('steamcmd') returns null.

@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import pkg from '../../package.json' with { type: 'json' };
+import { registerDaemon } from './commands/daemon.ts';
 import { registerDoctor } from './commands/doctor.ts';
 import { registerInit } from './commands/init.ts';
 import { registerInstall } from './commands/install.ts';
@@ -40,3 +41,4 @@ registerRestart(program);
 registerStatus(program);
 registerRcon(program);
 registerLogs(program);
+registerDaemon(program);

@@ -24,8 +24,9 @@ const UpdateSchema = z
   .object({
     poll_interval: z.string().default('5m'),
     branch: z.string().default('public'),
+    build_check_every: z.number().int().positive().default(12),
   })
-  .default({ poll_interval: '5m', branch: 'public' });
+  .default({ poll_interval: '5m', branch: 'public', build_check_every: 12 });
 
 /**
  * mods.ids accepts both `bigint` (smol-toml output for >2^53) and `number`
