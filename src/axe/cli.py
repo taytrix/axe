@@ -13,6 +13,7 @@ from axe.errors import AxeError, ExitCode
 from axe.layout import layout_at
 from axe.logs import find_latest_log, follow_log, tail_lines
 from axe.mods import FreshnessReport, has_drift, run_mods_check
+from axe.monitor import run_monitor_tick
 from axe.output import (
     OutputOptions,
     read_output_options,
@@ -291,7 +292,30 @@ def _print_sync(outcome: SyncOutcome, opts: OutputOptions) -> None:
 @app.command()
 def monitor(ctx: typer.Context) -> None:
     """One tick: read status, write state.json, fire on_drift if needed."""
-    _stub("monitor", _opts(ctx))
+    opts = _opts(ctx)
+    try:
+        context = load_context(_config_path(ctx))
+        outcome = run_monitor_tick(context)
+    except AxeError as e:
+        render_error(command="monitor", error=e, opts=opts)
+        return
+
+    render_ok(
+        command="monitor",
+        data={
+            "state_path": outcome.state_path_str,
+            "drift": outcome.state.drift,
+            "hook_fired": outcome.hook_fired,
+            "checked_at": outcome.state.checked_at,
+        },
+        opts=opts,
+        human=lambda: print(
+            f"tick: drift={outcome.state.drift} state={outcome.state_path_str}"
+        ),
+        warnings=list(outcome.state.warnings) if outcome.state.warnings else None,
+    )
+    if outcome.state.drift:
+        raise typer.Exit(int(ExitCode.DRIFT))
 
 
 @app.command()
