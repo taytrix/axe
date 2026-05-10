@@ -1,0 +1,27 @@
+# uv / venv
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# Testing / linting cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+
+# Holdovers from the typescript line (untracked on this branch)
+node_modules/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
