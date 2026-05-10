@@ -1,7 +1,13 @@
 import type { Command } from 'commander';
-import { AxeError, hostPlatform, layoutAt, loadConfig } from '../../core/index.ts';
+import {
+  AxeError,
+  hostPlatform,
+  layoutAt,
+  loadConfig,
+  runServerInstall,
+} from '../../core/index.ts';
 import { readGlobalConfigPath, readOutputOptions, renderError, renderOk } from '../output.ts';
-import { performServerInstall, printInstallSummary } from './install.ts';
+import { printInstallSummary } from './install.ts';
 
 export function registerVerify(program: Command): void {
   program
@@ -13,7 +19,7 @@ export function registerVerify(program: Command): void {
       try {
         const config = await loadConfig(configPath);
         const layout = layoutAt(config.server.root, hostPlatform());
-        const result = await performServerInstall(config, layout, {
+        const result = await runServerInstall(config, layout, {
           verb: 'verify',
           validate: true,
         });

@@ -1,5 +1,3 @@
-import { mkdir } from 'node:fs/promises';
-import * as posix from 'node:path/posix';
 import type { Command } from 'commander';
 import {
   AxeError,
@@ -7,6 +5,7 @@ import {
   hasDrift,
   loadConfig,
   loadContext,
+  reserveSteamcmdLog,
   runModsCheck,
   syncModlist,
 } from '../../core/index.ts';
@@ -87,12 +86,7 @@ export function registerMods(program: Command): void {
       const configPath = readGlobalConfigPath(cmd);
       try {
         const { config, layout } = await loadContext(configPath);
-
-        const logDir = posix.join(config.server.root, '.axe');
-        await mkdir(logDir, { recursive: true });
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const logFile = posix.join(logDir, `steamcmd-sync-${stamp}.log`);
-
+        const logFile = await reserveSteamcmdLog(config.server.root, 'sync');
         const outcome = await syncModlist(config, layout, { logFile });
 
         const warnings = [...outcome.warnings];

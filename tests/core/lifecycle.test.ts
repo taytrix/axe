@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Config } from '../../src/core/config.ts';
@@ -120,7 +120,7 @@ describe('stopServer', () => {
   });
 
   test('escalates to SIGKILL when stub ignores SIGTERM', async () => {
-    const { root, procRoot, config } = await freshInstall();
+    const { root, procRoot } = await freshInstall();
     const layout = layoutAt(root, 'linux');
 
     // Spawn the stub directly with AXE_STUB_IGNORE_TERM so it ignores SIGTERM.

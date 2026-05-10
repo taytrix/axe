@@ -19,6 +19,15 @@ export {
 export { type Context, loadContext } from './context.ts';
 export { type Finding, type Level, type Report, runDoctor, worstFinding } from './doctor.ts';
 export { AxeError, type AxeErrorKind, ExitCode } from './errors.ts';
+export {
+  checkServerBuild,
+  type InstallData,
+  type RunServerInstallOptions,
+  runServerInstall,
+  type ServerBuildInfo,
+  type ServerInstallOutcome,
+  type ServerInstallVerb,
+} from './install.ts';
 export { atomicWrite } from './io.ts';
 export { type Layout, layoutAt, SERVER_APPID, WORKSHOP_APPID } from './layout.ts';
 export {
@@ -43,6 +52,12 @@ export {
   type RunModsCheckResult,
   runModsCheck,
 } from './mods.ts';
+export {
+  axeStateDir,
+  reserveSteamcmdLog,
+  type SteamcmdVerb,
+  steamcmdLogPath,
+} from './paths.ts';
 export { probe } from './probe.ts';
 export {
   type FindRunningServerOptions,

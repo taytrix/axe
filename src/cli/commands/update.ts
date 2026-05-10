@@ -1,13 +1,13 @@
 import type { Command } from 'commander';
 import {
   AxeError,
+  checkServerBuild,
   ExitCode,
   hostPlatform,
+  type InstallData,
   layoutAt,
   loadConfig,
-  parseAppInfo,
-  runSteamcmd,
-  SERVER_APPID,
+  runServerInstall,
 } from '../../core/index.ts';
 import {
   readGlobalConfigPath,
@@ -16,7 +16,7 @@ import {
   renderFail,
   renderOk,
 } from '../output.ts';
-import { type InstallData, performServerInstall, printInstallSummary } from './install.ts';
+import { printInstallSummary } from './install.ts';
 
 type UpdateFlags = {
   checkOnly?: boolean;
@@ -43,7 +43,6 @@ export function registerUpdate(program: Command): void {
       const configPath = readGlobalConfigPath(cmd);
 
       if (options.checkOnly === options.apply) {
-        // both unset (false===false), or both set (true===true) → misuse
         renderFail({
           command: 'update',
           code: ExitCode.Misuse,
@@ -58,45 +57,22 @@ export function registerUpdate(program: Command): void {
 
       try {
         const config = await loadConfig(configPath);
-        const layout = layoutAt(config.server.root, hostPlatform());
 
         if (options.checkOnly) {
-          const steamcmdBinary = config.steamcmd?.binary ?? Bun.which('steamcmd');
-          if (!steamcmdBinary) {
-            throw new AxeError(
-              'config',
-              'steamcmd binary not found; set [steamcmd].binary in axe.toml or install steamcmd on PATH',
-            );
-          }
-          const warnings: string[] = [];
-          const info = await runSteamcmd({
-            binary: steamcmdBinary,
-            forceInstallDir: config.server.root,
-            login: 'anonymous',
-            actions: [{ kind: 'app_info_print', appid: SERVER_APPID }],
-          });
-          if (info.exit !== 0) {
-            warnings.push(`steamcmd exited ${info.exit} during app_info_print`);
-          }
-          const { build_id } = parseAppInfo(info.stdout, SERVER_APPID);
-          if (build_id === null) {
-            warnings.push('build_id not found in app_info output');
-          }
+          const { build_id, warnings } = await checkServerBuild(config);
           const data: UpdateCheckData = { mode: 'check-only', build_id };
           renderOk({
             command: 'update',
             data,
             opts,
-            human: () => {
-              console.log(`server build_id: ${build_id ?? '<unknown>'}`);
-            },
+            human: () => console.log(`server build_id: ${build_id ?? '<unknown>'}`),
             warnings,
           });
           return;
         }
 
-        // --apply
-        const result = await performServerInstall(config, layout, {
+        const layout = layoutAt(config.server.root, hostPlatform());
+        const result = await runServerInstall(config, layout, {
           verb: 'update',
           validate: options.validate ?? false,
         });

@@ -1,4 +1,4 @@
-import { readdir, readlink } from 'node:fs/promises';
+import { readdir, readFile, readlink } from 'node:fs/promises';
 import { basename } from 'node:path';
 import type { Layout } from './layout.ts';
 import type { SpawnLike } from './steamcmd.ts';
@@ -44,17 +44,49 @@ async function findOnLinux(layout: Layout, procRoot: string): Promise<RunningSer
   } catch {
     return null;
   }
+
+  // Single pass over /proc with two precedence tiers:
+  // 1. Exact match on `/proc/<pid>/exe` symlink target — preferred.
+  // 2. Fallback: `/proc/<pid>/cmdline` first argv equals binary or launcher.
+  //
+  // The fallback covers Conan installs where the launcher script does not
+  // exec the binary (so `/proc/<pid>/exe` resolves to bash instead). The
+  // canonical Conan launcher does `exec ...`, but this tolerates variants.
+  const launcher = layout.launcher_script ?? null;
+  let cmdlineMatch: number | null = null;
+
   for (const name of entries) {
     if (!/^\d+$/.test(name)) continue;
     const pid = Number.parseInt(name, 10);
+
     try {
       const exe = await readlink(`${procRoot}/${name}/exe`);
       if (exe === layout.binary) return { pid };
     } catch {
-      // permission denied / race — skip
+      // permission denied / race — fall through to cmdline check
+    }
+
+    if (cmdlineMatch === null) {
+      try {
+        const raw = await readFile(`${procRoot}/${name}/cmdline`);
+        const argv0 = parseCmdlineArgv0(raw);
+        if (argv0 !== null && (argv0 === layout.binary || argv0 === launcher)) {
+          cmdlineMatch = pid;
+        }
+      } catch {
+        // cmdline unreadable — skip
+      }
     }
   }
-  return null;
+
+  return cmdlineMatch !== null ? { pid: cmdlineMatch } : null;
+}
+
+/** Extract argv[0] from a `/proc/<pid>/cmdline` buffer (null-byte separated). */
+function parseCmdlineArgv0(raw: Uint8Array): string | null {
+  const nul = raw.indexOf(0);
+  if (nul <= 0) return null;
+  return new TextDecoder().decode(raw.subarray(0, nul));
 }
 
 async function findOnWindows(

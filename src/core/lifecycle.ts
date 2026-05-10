@@ -122,9 +122,7 @@ export async function stopServer(
   }
 
   signal(running.pid, 'SIGKILL');
-  while (isProcessAlive(running.pid)) {
-    await sleep(50);
-  }
+  await waitForExit(running.pid);
   return { pid: running.pid, method: 'kill', elapsed_ms: Date.now() - started };
 }
 
@@ -144,10 +142,29 @@ export async function killServer(
     throw new AxeError('lifecycle', 'no running server');
   }
   signal(running.pid, 'SIGKILL');
-  while (isProcessAlive(running.pid)) {
+  await waitForExit(running.pid);
+  return running;
+}
+
+/**
+ * Maximum time we'll spin waiting for a SIGKILL'd pid to disappear from the
+ * process table. In practice the kernel reaps within milliseconds, but
+ * unreapable zombies (broken parent) or namespace edge cases could otherwise
+ * hang the verb forever.
+ */
+const POST_KILL_TIMEOUT_MS = 5000;
+
+async function waitForExit(pid: number): Promise<void> {
+  const deadline = Date.now() + POST_KILL_TIMEOUT_MS;
+  while (isProcessAlive(pid)) {
+    if (Date.now() > deadline) {
+      throw new AxeError(
+        'lifecycle',
+        `pid ${pid} still alive ${POST_KILL_TIMEOUT_MS}ms after SIGKILL (zombie or namespace race?)`,
+      );
+    }
     await sleep(50);
   }
-  return running;
 }
 
 /**
