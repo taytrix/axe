@@ -11,6 +11,7 @@ from axe.config import Config, save_config
 from axe.context import load_context
 from axe.errors import AxeError, ExitCode
 from axe.layout import layout_at
+from axe.mods import FreshnessReport, has_drift, run_mods_check
 from axe.output import (
     OutputOptions,
     read_output_options,
@@ -19,6 +20,7 @@ from axe.output import (
     render_ok,
 )
 from axe.status import Status, read_status
+from axe.sync import SyncOutcome, sync_modlist
 from axe.systemd import systemctl_show
 
 app = typer.Typer(
@@ -246,7 +248,42 @@ def _format_uptime(seconds: int) -> str:
 @app.command()
 def sync(ctx: typer.Context) -> None:
     """Reconcile mods and modlist."""
-    _stub("sync", _opts(ctx))
+    opts = _opts(ctx)
+    try:
+        context = load_context(_config_path(ctx))
+        outcome = sync_modlist(context)
+    except AxeError as e:
+        render_error(command="sync", error=e, opts=opts)
+        return
+
+    data = {
+        "downloaded": outcome.downloaded,
+        "missing": outcome.missing,
+        "modlist_path": outcome.modlist_path,
+        "modlist_changed": outcome.modlist_changed,
+        "log_file": str(outcome.log_file) if outcome.log_file else None,
+    }
+    render_ok(
+        command="sync",
+        data=data,
+        opts=opts,
+        human=lambda: _print_sync(outcome, opts),
+        warnings=list(outcome.warnings) if outcome.warnings else None,
+    )
+    if outcome.missing:
+        raise typer.Exit(int(ExitCode.DRIFT))
+
+
+def _print_sync(outcome: SyncOutcome, opts: OutputOptions) -> None:
+    console = Console(no_color=not opts.color)
+    for wsid in outcome.downloaded:
+        console.print(f"[green]down[/green]    {wsid}")
+    for wsid in outcome.missing:
+        console.print(f"[red]miss[/red]    {wsid}")
+    if outcome.modlist_changed:
+        console.print(f"[blue]wrote[/blue]   {outcome.modlist_path}")
+    else:
+        console.print(f"[dim]nochg[/dim]   {outcome.modlist_path}")
 
 
 @app.command()
@@ -258,7 +295,65 @@ def monitor(ctx: typer.Context) -> None:
 @app.command()
 def mods(ctx: typer.Context) -> None:
     """Declared mods + freshness state."""
-    _stub("mods", _opts(ctx))
+    opts = _opts(ctx)
+    try:
+        context = load_context(_config_path(ctx))
+        result = run_mods_check(context)
+    except AxeError as e:
+        render_error(command="mods", error=e, opts=opts)
+        return
+
+    report = result.report
+    data = {
+        "total": report.total,
+        "current": report.current,
+        "stale": report.stale,
+        "missing_local": report.missing_local,
+        "missing_remote": report.missing_remote,
+        "unmanaged": report.unmanaged,
+        "items": [
+            {
+                "id": item.id,
+                "state": item.state,
+                "title": item.title,
+                "local_manifest": item.local_manifest,
+                "latest_manifest": item.latest_manifest,
+                "local_time_updated": item.local_time_updated,
+                "latest_time_updated": item.latest_time_updated,
+            }
+            for item in report.items
+        ],
+    }
+    render_ok(
+        command="mods",
+        data=data,
+        opts=opts,
+        human=lambda: _print_mods(report, opts),
+        warnings=list(result.warnings) if result.warnings else None,
+    )
+    if has_drift(report):
+        raise typer.Exit(int(ExitCode.DRIFT))
+
+
+def _print_mods(report: FreshnessReport, opts: OutputOptions) -> None:
+    console = Console(no_color=not opts.color)
+    if not report.items:
+        console.print("[dim]no declared mods[/dim]")
+        return
+    for item in report.items:
+        marker = _state_marker(item.state)
+        title = item.title or "<unknown>"
+        console.print(f"{marker}  {item.id}  [dim]{title}[/dim]")
+
+
+def _state_marker(state: str) -> str:
+    return {
+        "current": "[green]ok[/green]   ",
+        "stale": "[yellow]stale[/yellow]",
+        "missing_local": "[red]miss[/red] ",
+        "missing_remote": "[red]gone[/red] ",
+        "unmanaged": "[dim]extra[/dim]",
+    }.get(state, "[dim]?[/dim]    ")
 
 
 @app.command()
