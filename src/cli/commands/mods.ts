@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises';
+import * as posix from 'node:path/posix';
 import type { Command } from 'commander';
 import {
   AxeError,
@@ -6,6 +8,7 @@ import {
   loadConfig,
   loadContext,
   runModsCheck,
+  syncModlist,
 } from '../../core/index.ts';
 import {
   readGlobalConfigPath,
@@ -69,6 +72,67 @@ export function registerMods(program: Command): void {
       } catch (e) {
         if (e instanceof AxeError) {
           renderError({ command: 'mods check', error: e, opts });
+          return;
+        }
+        throw e;
+      }
+    });
+
+  mods
+    .command('sync')
+    .description('download stale/missing mods via steamcmd; rewrite modlist.txt if changed')
+    .option('--no-restart', 'reserved for daemon use; tweaks the running-server warning')
+    .action(async (options: { restart?: boolean }, cmd: Command) => {
+      const opts = readOutputOptions(cmd);
+      const configPath = readGlobalConfigPath(cmd);
+      try {
+        const { config, layout } = await loadContext(configPath);
+
+        const logDir = posix.join(config.server.root, '.axe');
+        await mkdir(logDir, { recursive: true });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const logFile = posix.join(logDir, `steamcmd-sync-${stamp}.log`);
+
+        const outcome = await syncModlist(config, layout, { logFile });
+
+        const warnings = [...outcome.warnings];
+        // PR3: warning text reflects the --no-restart flag without checking
+        // for an actual running server (PR4 adds findRunningServer).
+        if (outcome.modlist_changed) {
+          warnings.push(
+            options.restart === false
+              ? 'modlist.txt rewritten; daemon will sequence the restart'
+              : 'modlist.txt rewritten; if the server is running, restart for changes to take effect',
+          );
+        }
+
+        renderOk({
+          command: 'mods sync',
+          data: outcome,
+          opts,
+          human: () => {
+            if (outcome.downloaded.length === 0 && !outcome.modlist_changed) {
+              console.log('all mods current; nothing to do');
+              return;
+            }
+            console.log(
+              `downloaded ${outcome.downloaded.length} mod${outcome.downloaded.length === 1 ? '' : 's'}; ${
+                outcome.modlist_changed ? 'modlist.txt rewritten' : 'modlist.txt unchanged'
+              }`,
+            );
+            if (outcome.missing.length > 0) {
+              console.log(
+                `  still missing: ${outcome.missing.map((id) => id.toString()).join(', ')}`,
+              );
+            }
+          },
+          warnings,
+        });
+
+        if (outcome.missing.length > 0) process.exitCode = ExitCode.Drift;
+      } catch (e) {
+        if (e instanceof AxeError) {
+          renderError({ command: 'mods sync', error: e, opts });
           return;
         }
         throw e;

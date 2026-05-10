@@ -42,12 +42,17 @@ const ModsSchema = z
   })
   .default({ ids: [], restart_on_change: true });
 
+const SteamcmdSchema = z.object({
+  binary: z.string().min(1).optional(),
+});
+
 export const ConfigSchema = z.object({
   schema: z.literal(SCHEMA),
   server: ServerSchema,
   network: NetworkSchema,
   update: UpdateSchema,
   mods: ModsSchema,
+  steamcmd: SteamcmdSchema.optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

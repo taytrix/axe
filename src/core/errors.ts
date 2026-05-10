@@ -12,7 +12,13 @@ export const ExitCode = {
 
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];
 
-export type AxeErrorKind = 'config' | 'discovery' | 'filesystem' | 'workshop_api' | 'acf_parse';
+export type AxeErrorKind =
+  | 'config'
+  | 'discovery'
+  | 'filesystem'
+  | 'workshop_api'
+  | 'acf_parse'
+  | 'lifecycle';
 
 export class AxeError extends Error {
   readonly kind: AxeErrorKind;
@@ -34,6 +40,8 @@ export class AxeError extends Error {
         return ExitCode.Filesystem;
       case 'workshop_api':
         return ExitCode.Network;
+      case 'lifecycle':
+        return ExitCode.Lifecycle;
     }
   }
 }

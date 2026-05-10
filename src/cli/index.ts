@@ -2,7 +2,10 @@ import { Command } from 'commander';
 import pkg from '../../package.json' with { type: 'json' };
 import { registerDoctor } from './commands/doctor.ts';
 import { registerInit } from './commands/init.ts';
+import { registerInstall } from './commands/install.ts';
 import { registerMods } from './commands/mods.ts';
+import { registerUpdate } from './commands/update.ts';
+import { registerVerify } from './commands/verify.ts';
 import { registerVersion } from './commands/version.ts';
 
 export const program = new Command();
@@ -19,4 +22,7 @@ program
 registerVersion(program);
 registerInit(program);
 registerDoctor(program);
+registerInstall(program);
+registerUpdate(program);
+registerVerify(program);
 registerMods(program);

@@ -5,6 +5,7 @@ export {
   parseAcf,
   type WorkshopId,
 } from './acf.ts';
+export { type AppInfo, parseAppInfo } from './app_info.ts';
 export {
   type Config,
   ConfigSchema,
@@ -31,6 +32,18 @@ export {
   runModsCheck,
 } from './mods.ts';
 export { probe } from './probe.ts';
-export type { Platform } from './types.ts';
+export {
+  buildArgv,
+  type RunSteamcmdOptions,
+  runSteamcmd,
+  type SpawnedProcess,
+  type SpawnLike,
+  type SteamcmdAction,
+  type SteamcmdLogin,
+  type SteamcmdOutcome,
+  type SteamcmdRequest,
+} from './steamcmd.ts';
+export { type RunSyncOptions, type SyncOutcome, syncModlist } from './sync.ts';
+export { hostPlatform, type Platform } from './types.ts';
 export { parseVdf, type VdfObject, type VdfValue } from './vdf.ts';
 export { type FetchLike, getPublishedFileDetails, type WorkshopItem } from './workshop.ts';
