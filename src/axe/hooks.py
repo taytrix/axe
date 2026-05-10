@@ -1,3 +1,5 @@
+"""Hook execution: shell command + AXE_* env vars; failures are warnings, never raise."""
+
 from __future__ import annotations
 
 import os

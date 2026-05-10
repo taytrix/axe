@@ -1,3 +1,5 @@
+"""Pure renderers for systemd user unit text (server + monitor pair)."""
+
 from __future__ import annotations
 
 import sys

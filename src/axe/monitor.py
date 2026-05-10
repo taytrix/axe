@@ -1,3 +1,5 @@
+"""One tick of the drift sensor: read status, write state.json, fire on_drift on edge."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

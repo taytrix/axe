@@ -1,3 +1,5 @@
+"""Narrow VDF / Valve KeyValues parser (hand-rolled; ACF + app_info_print share it)."""
+
 from __future__ import annotations
 
 from axe.errors import AxeError

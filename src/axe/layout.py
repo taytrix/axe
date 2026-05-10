@@ -1,3 +1,5 @@
+"""Filesystem paths derived from `<server.root>` (axe-root convention; Linux only)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

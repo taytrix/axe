@@ -1,12 +1,18 @@
+"""SteamCMD subprocess wrapper: typed actions, argv builder, log capture."""
+
 from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from axe.errors import AxeError
 from axe.io import atomic_write
+
+SteamcmdVerb = Literal["install", "update", "verify", "sync"]
 
 
 @dataclass(frozen=True)
@@ -108,6 +114,14 @@ def run_steamcmd(
         atomic_write(log_file, _format_log(argv, outcome))
 
     return outcome
+
+
+def reserve_steamcmd_log(root: Path, verb: SteamcmdVerb) -> Path:
+    """Ensure `<root>/.axe/` exists and return a fresh timestamped log path for `verb`."""
+    state_dir = root / ".axe"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
+    return state_dir / f"steamcmd-{verb}-{stamp}.log"
 
 
 def _format_log(argv: Sequence[str], outcome: SteamcmdOutcome) -> str:

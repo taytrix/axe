@@ -1,3 +1,5 @@
+"""The Status snapshot: what is true now (server + mods + warnings)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -57,22 +59,14 @@ def _server_status_from_show(unit: str, show: dict[str, str]) -> ServerStatus:
 
 
 def _compute_uptime(show: dict[str, str]) -> int | None:
-    raw = show.get("ActiveEnterTimestamp", "")
-    if not raw:
+    """ActiveEnterTimestamp is 'DOW YYYY-MM-DD HH:MM:SS TZ'; parse the middle two tokens."""
+    tokens = show.get("ActiveEnterTimestamp", "").split()
+    if len(tokens) < 3:
         return None
-    parts = raw.split(maxsplit=1)
-    if len(parts) < 2:
-        return None
-    ts_text = parts[1]
-    tokens = ts_text.split()
-    if len(tokens) < 2:
-        return None
-    ts_no_tz = " ".join(tokens[:-1]) if len(tokens) >= 3 else " ".join(tokens[:2])
     try:
-        dt = datetime.strptime(ts_no_tz, "%Y-%m-%d %H:%M:%S")
+        dt = datetime.strptime(f"{tokens[1]} {tokens[2]}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
     except ValueError:
         return None
-    dt = dt.replace(tzinfo=UTC)
     return max(0, int((datetime.now(UTC) - dt).total_seconds()))
 
 

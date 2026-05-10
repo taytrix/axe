@@ -1,3 +1,5 @@
+"""Steam Workshop API client: `GetPublishedFileDetails` via httpx, no API key."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence

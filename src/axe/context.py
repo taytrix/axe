@@ -1,3 +1,5 @@
+"""`load_context(path)` -> bundled `Config` + `Layout`; every verb opens with this."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

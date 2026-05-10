@@ -1,3 +1,5 @@
+"""Human (Rich) + machine (JSON envelope) renderers. The single home for presentation."""
+
 from __future__ import annotations
 
 import json
@@ -5,11 +7,18 @@ import os
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, NoReturn
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from rich.console import Console
 
+from axe import __version__
 from axe.errors import AxeError, ExitCode
+
+if TYPE_CHECKING:
+    from axe.mods import FreshnessReport
+    from axe.status import Status
+    from axe.sync import SyncOutcome
 
 
 @dataclass(frozen=True)
@@ -27,6 +36,9 @@ def should_color(no_color: bool) -> bool:
     if no_color or os.environ.get("NO_COLOR"):
         return False
     return sys.stdout.isatty()
+
+
+# ---------- envelope I/O ----------------------------------------------------
 
 
 def render_ok(
@@ -74,19 +86,128 @@ def render_fail(
     raise SystemExit(int(code))
 
 
-def render_error(
-    *,
-    command: str,
-    error: AxeError,
-    opts: OutputOptions,
-) -> NoReturn:
-    code_map: dict[str, ExitCode] = {
-        "config": ExitCode.CONFIG,
-        "discovery": ExitCode.DISCOVERY,
-        "filesystem": ExitCode.FILESYSTEM,
-        "workshop_api": ExitCode.NETWORK,
-        "acf_parse": ExitCode.CONFIG,
-        "lifecycle": ExitCode.LIFECYCLE,
+_KIND_TO_CODE: dict[str, ExitCode] = {
+    "config": ExitCode.CONFIG,
+    "discovery": ExitCode.DISCOVERY,
+    "filesystem": ExitCode.FILESYSTEM,
+    "workshop_api": ExitCode.NETWORK,
+    "acf_parse": ExitCode.CONFIG,
+    "lifecycle": ExitCode.LIFECYCLE,
+    "hook": ExitCode.LIFECYCLE,
+}
+
+
+def render_error(*, command: str, error: AxeError, opts: OutputOptions) -> NoReturn:
+    render_fail(
+        command=command,
+        code=_KIND_TO_CODE.get(error.kind, ExitCode.MISUSE),
+        message=error.message,
+        opts=opts,
+    )
+
+
+# ---------- front door ------------------------------------------------------
+
+
+def print_front_door(opts: OutputOptions) -> None:
+    console = Console(no_color=not opts.color)
+    console.print(f"[bold]axe {__version__}[/bold]\n")
+    console.print("[dim]common[/dim]")
+    console.print("  axe status          show what is true")
+    console.print("  axe sync            reconcile mods and modlist")
+    console.print("  axe monitor         one tick (used by the systemd timer)")
+    console.print("  axe server up       start the systemd service")
+    console.print("  axe server restart  restart the systemd service")
+    console.print("  axe mods            declared mods + freshness")
+    console.print("  axe unit            print systemd user units")
+
+
+# ---------- status ----------------------------------------------------------
+
+
+def status_envelope(s: Status) -> dict[str, object]:
+    return {
+        "config_path": s.config_path,
+        "root": s.root,
+        "server": {
+            "unit": s.server.unit,
+            "active_state": s.server.active_state,
+            "sub_state": s.server.sub_state,
+            "main_pid": s.server.main_pid,
+            "uptime_seconds": s.server.uptime_seconds,
+        },
+        "mods": {
+            "declared": s.mods.declared,
+            "current": s.mods.current,
+            "stale": s.mods.stale,
+            "missing_local": s.mods.missing_local,
+            "missing_remote": s.mods.missing_remote,
+        },
     }
-    code = code_map.get(error.kind, ExitCode.MISUSE)
-    render_fail(command=command, code=code, message=error.message, opts=opts)
+
+
+def print_status(s: Status, opts: OutputOptions) -> None:
+    console = Console(no_color=not opts.color)
+    console.print(f"[bold]axe / {Path(s.config_path).parent.name}[/bold]")
+    console.print(f"[dim]root[/dim]         {s.root}\n")
+    console.print("[dim]server[/dim]")
+    console.print(f"  unit         {s.server.unit}")
+    console.print(f"  active       {s.server.active_state}")
+    console.print(f"  sub          {s.server.sub_state}")
+    if s.server.main_pid is not None:
+        console.print(f"  pid          {s.server.main_pid}")
+    if s.server.uptime_seconds is not None:
+        console.print(f"  uptime       {_format_uptime(s.server.uptime_seconds)}")
+    console.print()
+    console.print("[dim]mods[/dim]")
+    console.print(f"  declared     {s.mods.declared}")
+    if s.mods.declared:
+        console.print(f"  current      {s.mods.current}")
+        console.print(f"  stale        {s.mods.stale}")
+        console.print(f"  missing      {s.mods.missing_local}")
+    if s.warnings:
+        console.print()
+        for w in s.warnings:
+            console.print(f"[yellow]warn[/yellow]    {w}")
+
+
+def _format_uptime(seconds: int) -> str:
+    hours, remainder = divmod(seconds, 3600)
+    minutes = remainder // 60
+    return f"{hours}h {minutes}m" if hours else f"{minutes}m"
+
+
+# ---------- sync ------------------------------------------------------------
+
+
+def print_sync(outcome: SyncOutcome, opts: OutputOptions) -> None:
+    console = Console(no_color=not opts.color)
+    for wsid in outcome.downloaded:
+        console.print(f"[green]down[/green]    {wsid}")
+    for wsid in outcome.missing:
+        console.print(f"[red]miss[/red]    {wsid}")
+    label = "[blue]wrote[/blue]" if outcome.modlist_changed else "[dim]nochg[/dim]"
+    console.print(f"{label}   {outcome.modlist_path}")
+
+
+# ---------- mods ------------------------------------------------------------
+
+
+_MOD_STATE_MARKER: dict[str, str] = {
+    "current": "[green]ok[/green]   ",
+    "stale": "[yellow]stale[/yellow]",
+    "missing_local": "[red]miss[/red] ",
+    "missing_remote": "[red]gone[/red] ",
+    "unmanaged": "[dim]extra[/dim]",
+}
+
+
+def print_mods(report: FreshnessReport, opts: OutputOptions) -> None:
+    console = Console(no_color=not opts.color)
+    if not report.items:
+        console.print("[dim]no declared mods[/dim]")
+        return
+    for item in report.items:
+        marker = _MOD_STATE_MARKER.get(item.state, "[dim]?[/dim]    ")
+        title = item.title or "<unknown>"
+        console.print(f"{marker}  {item.id}  [dim]{title}[/dim]")

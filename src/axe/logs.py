@@ -1,3 +1,5 @@
+"""Conan log file discovery + tail/follow."""
+
 from __future__ import annotations
 
 import time

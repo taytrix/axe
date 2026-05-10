@@ -1,3 +1,5 @@
+"""`systemctl --user` shell-out: show parser + start/stop/restart verbs."""
+
 from __future__ import annotations
 
 import shutil

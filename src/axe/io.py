@@ -1,3 +1,5 @@
+"""Atomic file writes (tmp + os.replace) for crash-safe state."""
+
 from __future__ import annotations
 
 import contextlib

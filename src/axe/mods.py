@@ -1,3 +1,5 @@
+"""Mod freshness: declared (axe.toml) vs local (ACF) vs remote (Workshop API)."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence

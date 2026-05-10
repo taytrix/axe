@@ -1,3 +1,5 @@
+"""Pydantic `SavedState` for `<root>/.axe/state.json` (one snapshot, atomic write)."""
+
 from __future__ import annotations
 
 import json

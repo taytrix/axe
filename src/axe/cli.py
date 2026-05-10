@@ -1,10 +1,11 @@
+"""Typer CLI surface: thin handlers that load context, call core, render via output."""
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.console import Console
 
 from axe import __version__
 from axe.config import Config, save_config
@@ -12,17 +13,22 @@ from axe.context import load_context
 from axe.errors import AxeError, ExitCode
 from axe.layout import layout_at
 from axe.logs import find_latest_log, follow_log, tail_lines
-from axe.mods import FreshnessReport, has_drift, run_mods_check
+from axe.mods import has_drift, run_mods_check
 from axe.monitor import run_monitor_tick
 from axe.output import (
     OutputOptions,
+    print_front_door,
+    print_mods,
+    print_status,
+    print_sync,
     read_output_options,
     render_error,
     render_fail,
     render_ok,
+    status_envelope,
 )
-from axe.status import Status, read_status
-from axe.sync import SyncOutcome, sync_modlist
+from axe.status import read_status
+from axe.sync import sync_modlist
 from axe.systemd import SystemctlVerb, systemctl_show, systemctl_verb
 from axe.units import render_monitor_units, render_server_unit
 
@@ -55,15 +61,6 @@ def _config_path(ctx: typer.Context) -> Path | None:
     return obj.get("config")
 
 
-def _stub(command: str, opts: OutputOptions) -> None:
-    render_fail(
-        command=command,
-        code=ExitCode.MISUSE,
-        message="not implemented yet (stub)",
-        opts=opts,
-    )
-
-
 @app.callback()
 def main(
     ctx: typer.Context,
@@ -83,20 +80,7 @@ def main(
             message="--json requires a verb",
             opts=opts,
         )
-    _print_front_door(opts)
-
-
-def _print_front_door(opts: OutputOptions) -> None:
-    console = Console(no_color=not opts.color)
-    console.print(f"[bold]axe {__version__}[/bold]\n")
-    console.print("[dim]common[/dim]")
-    console.print("  axe status          show what is true")
-    console.print("  axe sync            reconcile mods and modlist")
-    console.print("  axe monitor         one tick (used by the systemd timer)")
-    console.print("  axe server up       start the systemd service")
-    console.print("  axe server restart  restart the systemd service")
-    console.print("  axe mods            declared mods + freshness")
-    console.print("  axe unit            print systemd user units")
+    print_front_door(opts)
 
 
 @app.command()
@@ -134,25 +118,18 @@ def init(
         render_fail(
             command="init",
             code=ExitCode.DISCOVERY,
-            message=(
-                f"no Conan binary at {layout.binary}; "
-                f"{target_root} is not a Conan install"
-            ),
+            message=f"no Conan binary at {layout.binary}; {target_root} is not a Conan install",
             opts=opts,
         )
 
     server_id = target_root.name or "conan"
     config = Config.model_validate(
-        {
-            "schema": 1,
-            "server": {"id": server_id, "root": str(target_root)},
-        }
+        {"schema": 1, "server": {"id": server_id, "root": str(target_root)}}
     )
     try:
         save_config(config, target_toml)
     except AxeError as e:
         render_error(command="init", error=e, opts=opts)
-        return
 
     render_ok(
         command="init",
@@ -172,80 +149,20 @@ def status(ctx: typer.Context) -> None:
     opts = _opts(ctx)
     try:
         context = load_context(_config_path(ctx))
-        status_data = read_status(context, with_mods=True)
+        s = read_status(context, with_mods=True)
     except AxeError as e:
         render_error(command="status", error=e, opts=opts)
-        return
 
-    drift = (
-        status_data.mods.stale > 0
-        or status_data.mods.missing_local > 0
-        or status_data.mods.missing_remote > 0
-    )
-
+    drift = s.mods.stale > 0 or s.mods.missing_local > 0 or s.mods.missing_remote > 0
     render_ok(
         command="status",
-        data=_status_envelope(status_data),
+        data=status_envelope(s),
         opts=opts,
-        human=lambda: _print_status(status_data, opts),
-        warnings=list(status_data.warnings) if status_data.warnings else None,
+        human=lambda: print_status(s, opts),
+        warnings=s.warnings,
     )
     if drift:
         raise typer.Exit(int(ExitCode.DRIFT))
-
-
-def _status_envelope(s: Status) -> dict[str, object]:
-    return {
-        "config_path": s.config_path,
-        "root": s.root,
-        "server": {
-            "unit": s.server.unit,
-            "active_state": s.server.active_state,
-            "sub_state": s.server.sub_state,
-            "main_pid": s.server.main_pid,
-            "uptime_seconds": s.server.uptime_seconds,
-        },
-        "mods": {
-            "declared": s.mods.declared,
-            "current": s.mods.current,
-            "stale": s.mods.stale,
-            "missing_local": s.mods.missing_local,
-            "missing_remote": s.mods.missing_remote,
-        },
-    }
-
-
-def _print_status(s: Status, opts: OutputOptions) -> None:
-    console = Console(no_color=not opts.color)
-    console.print(f"[bold]axe / {Path(s.config_path).parent.name}[/bold]")
-    console.print(f"[dim]root[/dim]         {s.root}\n")
-    console.print("[dim]server[/dim]")
-    console.print(f"  unit         {s.server.unit}")
-    console.print(f"  active       {s.server.active_state}")
-    console.print(f"  sub          {s.server.sub_state}")
-    if s.server.main_pid is not None:
-        console.print(f"  pid          {s.server.main_pid}")
-    if s.server.uptime_seconds is not None:
-        console.print(f"  uptime       {_format_uptime(s.server.uptime_seconds)}")
-    console.print()
-    console.print("[dim]mods[/dim]")
-    console.print(f"  declared     {s.mods.declared}")
-    if s.mods.declared:
-        console.print(f"  current      {s.mods.current}")
-        console.print(f"  stale        {s.mods.stale}")
-        console.print(f"  missing      {s.mods.missing_local}")
-    if s.warnings:
-        console.print()
-        for w in s.warnings:
-            console.print(f"[yellow]warn[/yellow]    {w}")
-
-
-def _format_uptime(seconds: int) -> str:
-    h, rem = divmod(seconds, 3600)
-    m, _ = divmod(rem, 60)
-    if h:
-        return f"{h}h {m}m"
-    return f"{m}m"
 
 
 @app.command()
@@ -257,36 +174,22 @@ def sync(ctx: typer.Context) -> None:
         outcome = sync_modlist(context)
     except AxeError as e:
         render_error(command="sync", error=e, opts=opts)
-        return
 
-    data = {
-        "downloaded": outcome.downloaded,
-        "missing": outcome.missing,
-        "modlist_path": outcome.modlist_path,
-        "modlist_changed": outcome.modlist_changed,
-        "log_file": str(outcome.log_file) if outcome.log_file else None,
-    }
     render_ok(
         command="sync",
-        data=data,
+        data={
+            "downloaded": outcome.downloaded,
+            "missing": outcome.missing,
+            "modlist_path": outcome.modlist_path,
+            "modlist_changed": outcome.modlist_changed,
+            "log_file": str(outcome.log_file) if outcome.log_file else None,
+        },
         opts=opts,
-        human=lambda: _print_sync(outcome, opts),
-        warnings=list(outcome.warnings) if outcome.warnings else None,
+        human=lambda: print_sync(outcome, opts),
+        warnings=outcome.warnings,
     )
     if outcome.missing:
         raise typer.Exit(int(ExitCode.DRIFT))
-
-
-def _print_sync(outcome: SyncOutcome, opts: OutputOptions) -> None:
-    console = Console(no_color=not opts.color)
-    for wsid in outcome.downloaded:
-        console.print(f"[green]down[/green]    {wsid}")
-    for wsid in outcome.missing:
-        console.print(f"[red]miss[/red]    {wsid}")
-    if outcome.modlist_changed:
-        console.print(f"[blue]wrote[/blue]   {outcome.modlist_path}")
-    else:
-        console.print(f"[dim]nochg[/dim]   {outcome.modlist_path}")
 
 
 @app.command()
@@ -298,7 +201,6 @@ def monitor(ctx: typer.Context) -> None:
         outcome = run_monitor_tick(context)
     except AxeError as e:
         render_error(command="monitor", error=e, opts=opts)
-        return
 
     render_ok(
         command="monitor",
@@ -312,7 +214,7 @@ def monitor(ctx: typer.Context) -> None:
         human=lambda: print(
             f"tick: drift={outcome.state.drift} state={outcome.state_path_str}"
         ),
-        warnings=list(outcome.state.warnings) if outcome.state.warnings else None,
+        warnings=list(outcome.state.warnings),
     )
     if outcome.state.drift:
         raise typer.Exit(int(ExitCode.DRIFT))
@@ -327,59 +229,36 @@ def mods(ctx: typer.Context) -> None:
         result = run_mods_check(context)
     except AxeError as e:
         render_error(command="mods", error=e, opts=opts)
-        return
 
     report = result.report
-    data = {
-        "total": report.total,
-        "current": report.current,
-        "stale": report.stale,
-        "missing_local": report.missing_local,
-        "missing_remote": report.missing_remote,
-        "unmanaged": report.unmanaged,
-        "items": [
-            {
-                "id": item.id,
-                "state": item.state,
-                "title": item.title,
-                "local_manifest": item.local_manifest,
-                "latest_manifest": item.latest_manifest,
-                "local_time_updated": item.local_time_updated,
-                "latest_time_updated": item.latest_time_updated,
-            }
-            for item in report.items
-        ],
-    }
     render_ok(
         command="mods",
-        data=data,
+        data={
+            "total": report.total,
+            "current": report.current,
+            "stale": report.stale,
+            "missing_local": report.missing_local,
+            "missing_remote": report.missing_remote,
+            "unmanaged": report.unmanaged,
+            "items": [
+                {
+                    "id": item.id,
+                    "state": item.state,
+                    "title": item.title,
+                    "local_manifest": item.local_manifest,
+                    "latest_manifest": item.latest_manifest,
+                    "local_time_updated": item.local_time_updated,
+                    "latest_time_updated": item.latest_time_updated,
+                }
+                for item in report.items
+            ],
+        },
         opts=opts,
-        human=lambda: _print_mods(report, opts),
-        warnings=list(result.warnings) if result.warnings else None,
+        human=lambda: print_mods(report, opts),
+        warnings=result.warnings,
     )
     if has_drift(report):
         raise typer.Exit(int(ExitCode.DRIFT))
-
-
-def _print_mods(report: FreshnessReport, opts: OutputOptions) -> None:
-    console = Console(no_color=not opts.color)
-    if not report.items:
-        console.print("[dim]no declared mods[/dim]")
-        return
-    for item in report.items:
-        marker = _state_marker(item.state)
-        title = item.title or "<unknown>"
-        console.print(f"{marker}  {item.id}  [dim]{title}[/dim]")
-
-
-def _state_marker(state: str) -> str:
-    return {
-        "current": "[green]ok[/green]   ",
-        "stale": "[yellow]stale[/yellow]",
-        "missing_local": "[red]miss[/red] ",
-        "missing_remote": "[red]gone[/red] ",
-        "unmanaged": "[dim]extra[/dim]",
-    }.get(state, "[dim]?[/dim]    ")
 
 
 @app.command()
@@ -400,7 +279,6 @@ def unit(
         context = load_context(_config_path(ctx))
     except AxeError as e:
         render_error(command=f"unit {target}", error=e, opts=opts)
-        return
 
     if target == "server":
         text = render_server_unit(context.config, context.layout)
@@ -424,7 +302,6 @@ def _server_lifecycle(ctx: typer.Context, verb: SystemctlVerb, command: str) -> 
         result = systemctl_verb(context.config.effective_unit(), verb)
     except AxeError as e:
         render_error(command=command, error=e, opts=opts)
-        return
     render_ok(
         command=command,
         data={"unit": result.unit, "verb": result.verb},
@@ -461,7 +338,6 @@ def server_status(ctx: typer.Context) -> None:
         show = systemctl_show(unit_name)
     except AxeError as e:
         render_error(command="server status", error=e, opts=opts)
-        return
 
     pid_raw = show.get("MainPID", "0")
     try:
@@ -478,9 +354,7 @@ def server_status(ctx: typer.Context) -> None:
         command="server status",
         data=data,
         opts=opts,
-        human=lambda: print(
-            f"{unit_name}: {data['active_state']} ({data['sub_state']})"
-        ),
+        human=lambda: print(f"{unit_name}: {data['active_state']} ({data['sub_state']})"),
     )
 
 
@@ -492,7 +366,6 @@ def logs_path(ctx: typer.Context) -> None:
         context = load_context(_config_path(ctx))
     except AxeError as e:
         render_error(command="logs path", error=e, opts=opts)
-        return
     if not context.layout.logs_dir.exists():
         render_fail(
             command="logs path",
@@ -531,7 +404,6 @@ def logs_tail(
         context = load_context(_config_path(ctx))
     except AxeError as e:
         render_error(command="logs tail", error=e, opts=opts)
-        return
     latest = find_latest_log(context.layout)
     if latest is None:
         render_fail(
@@ -548,7 +420,6 @@ def logs_tail(
         last_lines = tail_lines(latest, lines=lines)
     except AxeError as e:
         render_error(command="logs tail", error=e, opts=opts)
-        return
     render_ok(
         command="logs tail",
         data={"path": str(latest), "lines": last_lines},

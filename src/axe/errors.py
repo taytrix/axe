@@ -1,4 +1,9 @@
+"""Exit-code taxonomy and the single error class axe raises across boundaries."""
+
+from __future__ import annotations
+
 from enum import IntEnum
+from typing import Literal
 
 
 class ExitCode(IntEnum):
@@ -12,11 +17,19 @@ class ExitCode(IntEnum):
     DRIFT = 50
 
 
-AxeErrorKind = str
+AxeErrorKind = Literal[
+    "config",
+    "discovery",
+    "filesystem",
+    "workshop_api",
+    "acf_parse",
+    "lifecycle",
+    "hook",
+]
 
 
 class AxeError(Exception):
     def __init__(self, kind: AxeErrorKind, message: str) -> None:
         super().__init__(message)
-        self.kind = kind
+        self.kind: AxeErrorKind = kind
         self.message = message

@@ -1,3 +1,5 @@
+"""Mod reconciliation: download stale/missing via SteamCMD; rewrite modlist atomically."""
+
 from __future__ import annotations
 
 import shutil
@@ -10,12 +12,12 @@ from axe.errors import AxeError
 from axe.io import atomic_write
 from axe.layout import WORKSHOP_APPID, Layout
 from axe.mods import run_mods_check
-from axe.paths import reserve_steamcmd_log
 from axe.steamcmd import (
     SpawnLike,
     SteamcmdAction,
     SteamcmdRequest,
     WorkshopDownloadItem,
+    reserve_steamcmd_log,
     run_steamcmd,
 )
 from axe.workshop import FetchLike

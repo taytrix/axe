@@ -1,8 +1,9 @@
+"""Pydantic `Config` + `axe.toml` parse/load/serialize/save."""
+
 from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import Any
 
 import tomli_w
 from pydantic import BaseModel, Field, ValidationError
@@ -68,18 +69,10 @@ def load_config(path: Path) -> Config:
 
 
 def serialize_config(config: Config) -> str:
-    data: dict[str, Any] = {
-        "schema": config.schema_version,
-        "server": config.server.model_dump(exclude_none=True),
-        "mods": {"ids": list(config.mods.ids)},
-        "hooks": {
-            "on_drift": config.hooks.on_drift,
-            "before_sync": config.hooks.before_sync,
-            "after_sync": config.hooks.after_sync,
-        },
-    }
-    if config.steamcmd.binary is not None:
-        data["steamcmd"] = {"binary": config.steamcmd.binary}
+    data = config.model_dump(by_alias=True, exclude_none=True)
+    # exclude_none strips inner fields but leaves the empty [steamcmd] table behind.
+    if data.get("steamcmd") == {}:
+        del data["steamcmd"]
     return tomli_w.dumps(data)
 
 

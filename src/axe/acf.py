@@ -1,3 +1,5 @@
+"""Steam workshop ACF (`appworkshop_<appid>.acf`) -> typed `ModManifest` map."""
+
 from __future__ import annotations
 
 import re
