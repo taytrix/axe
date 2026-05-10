@@ -22,6 +22,18 @@ export { AxeError, type AxeErrorKind, ExitCode } from './errors.ts';
 export { atomicWrite } from './io.ts';
 export { type Layout, layoutAt, SERVER_APPID, WORKSHOP_APPID } from './layout.ts';
 export {
+  killServer,
+  type RestartOutcome,
+  type RestartServerOptions,
+  restartServer,
+  type StartOutcome,
+  type StartServerOptions,
+  type StopOutcome,
+  type StopServerOptions,
+  startServer,
+  stopServer,
+} from './lifecycle.ts';
+export {
   checkModFreshness,
   type FreshnessReport,
   type FreshnessState,
@@ -32,6 +44,11 @@ export {
   runModsCheck,
 } from './mods.ts';
 export { probe } from './probe.ts';
+export {
+  type FindRunningServerOptions,
+  findRunningServer,
+  type RunningServer,
+} from './process.ts';
 export {
   buildArgv,
   type RunSteamcmdOptions,
