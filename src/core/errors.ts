@@ -7,6 +7,7 @@ export const ExitCode = {
   Network: 20,
   Lifecycle: 30,
   Filesystem: 40,
+  Drift: 50,
 } as const;
 
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];

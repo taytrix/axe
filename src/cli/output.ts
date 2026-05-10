@@ -47,14 +47,28 @@ export function renderOk<T>(
   data: T,
   opts: OutputOptions,
   human?: () => void,
+  warnings?: readonly string[],
 ): void {
   if (opts.json) {
-    const envelope = { ok: true, command, data, error: null };
+    const envelope = {
+      ok: true,
+      command,
+      data,
+      error: null,
+      ...(warnings && warnings.length > 0 ? { warnings: [...warnings] } : {}),
+    };
     console.log(stringifyJson(envelope));
     return;
   }
   if (opts.quiet) return;
   human?.();
+  if (warnings && warnings.length > 0) {
+    const color = shouldColor(opts);
+    for (const w of warnings) {
+      const tag = color ? pc.yellow(pc.bold('warn')) : 'warn';
+      console.error(`${tag} ${w}`);
+    }
+  }
 }
 
 /**
