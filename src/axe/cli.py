@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -14,6 +15,7 @@ from axe.errors import AxeError, ExitCode
 from axe.layout import layout_at
 from axe.lifecycle import restart_server
 from axe.logs import find_latest_log, follow_log, tail_lines
+from axe.mod_edit import insert_mod, move_mod, remove_mod
 from axe.mods import has_drift, run_mods_check
 from axe.monitor import run_monitor_tick
 from axe.output import (
@@ -46,6 +48,19 @@ app.add_typer(server_app, name="server")
 
 logs_app = typer.Typer(help="Log inspection.", no_args_is_help=True)
 app.add_typer(logs_app, name="logs")
+
+mods_app = typer.Typer(
+    help="Mod stack ops (list/add/move/rm).",
+    no_args_is_help=False,
+    invoke_without_command=True,
+)
+app.add_typer(mods_app, name="mods")
+
+mods_add_app = typer.Typer(help="Insert a mod (top/bottom/above/below).", no_args_is_help=True)
+mods_app.add_typer(mods_add_app, name="add")
+
+mods_move_app = typer.Typer(help="Move a mod (top/bottom/above/below).", no_args_is_help=True)
+mods_app.add_typer(mods_move_app, name="move")
 
 
 def _opts(ctx: typer.Context) -> OutputOptions:
@@ -221,9 +236,20 @@ def monitor(ctx: typer.Context) -> None:
         raise typer.Exit(int(ExitCode.DRIFT))
 
 
-@app.command()
-def mods(ctx: typer.Context) -> None:
-    """Declared mods + freshness state."""
+@mods_app.callback()
+def mods_callback(ctx: typer.Context) -> None:
+    """`axe mods` with no subcommand defaults to `axe mods list`."""
+    if ctx.invoked_subcommand is None:
+        _mods_list(ctx)
+
+
+@mods_app.command("list")
+def mods_list(ctx: typer.Context) -> None:
+    """Show the declared mod stack with ordinals + freshness state."""
+    _mods_list(ctx)
+
+
+def _mods_list(ctx: typer.Context) -> None:
     opts = _opts(ctx)
     try:
         context = load_context(_config_path(ctx))
@@ -243,6 +269,7 @@ def mods(ctx: typer.Context) -> None:
             "unmanaged": report.unmanaged,
             "items": [
                 {
+                    "ordinal": ordinal,
                     "id": item.id,
                     "state": item.state,
                     "title": item.title,
@@ -251,15 +278,129 @@ def mods(ctx: typer.Context) -> None:
                     "local_time_updated": item.local_time_updated,
                     "latest_time_updated": item.latest_time_updated,
                 }
-                for item in report.items
+                for ordinal, item in enumerate(report.items, start=1)
             ],
         },
         opts=opts,
-        human=lambda: print_mods(report, opts),
+        human=lambda: print_mods(report, opts, root_label=context.layout.root.name),
         warnings=result.warnings,
     )
     if has_drift(report):
         raise typer.Exit(int(ExitCode.DRIFT))
+
+
+def _do_mods_edit(
+    ctx: typer.Context,
+    command: str,
+    edit: Callable[[Path], list[int]],
+) -> None:
+    opts = _opts(ctx)
+    try:
+        context = load_context(_config_path(ctx))
+        new_ids = edit(context.config_path)
+    except AxeError as e:
+        render_error(command=command, error=e, opts=opts)
+    render_ok(
+        command=command,
+        data={"ids": new_ids, "config_path": str(context.config_path)},
+        opts=opts,
+        human=lambda: print(
+            f"{command}: {len(new_ids)} mods declared — run 'axe sync' to apply"
+        ),
+    )
+
+
+@mods_add_app.command("top")
+def mods_add_top(
+    ctx: typer.Context,
+    mod_id: Annotated[int, typer.Argument(help="Workshop id to insert at the top.")],
+) -> None:
+    """Prepend MOD_ID to the stack."""
+    _do_mods_edit(ctx, "mods add top", lambda p: insert_mod(p, mod_id, "top"))
+
+
+@mods_add_app.command("bottom")
+def mods_add_bottom(
+    ctx: typer.Context,
+    mod_id: Annotated[int, typer.Argument(help="Workshop id to insert at the bottom.")],
+) -> None:
+    """Append MOD_ID to the stack."""
+    _do_mods_edit(ctx, "mods add bottom", lambda p: insert_mod(p, mod_id, "bottom"))
+
+
+@mods_add_app.command("above")
+def mods_add_above(
+    ctx: typer.Context,
+    ordinal: Annotated[int, typer.Argument(help="1-indexed reference ordinal.")],
+    mod_id: Annotated[int, typer.Argument(help="Workshop id to insert.")],
+) -> None:
+    """Insert MOD_ID above the entry at ORDINAL."""
+    _do_mods_edit(
+        ctx, "mods add above", lambda p: insert_mod(p, mod_id, "above", anchor=ordinal)
+    )
+
+
+@mods_add_app.command("below")
+def mods_add_below(
+    ctx: typer.Context,
+    ordinal: Annotated[int, typer.Argument(help="1-indexed reference ordinal.")],
+    mod_id: Annotated[int, typer.Argument(help="Workshop id to insert.")],
+) -> None:
+    """Insert MOD_ID below the entry at ORDINAL."""
+    _do_mods_edit(
+        ctx, "mods add below", lambda p: insert_mod(p, mod_id, "below", anchor=ordinal)
+    )
+
+
+@mods_move_app.command("top")
+def mods_move_top(
+    ctx: typer.Context,
+    mod_id: Annotated[int, typer.Argument(help="Workshop id of the mod to move.")],
+) -> None:
+    """Move MOD_ID to the top of the stack."""
+    _do_mods_edit(ctx, "mods move top", lambda p: move_mod(p, mod_id, "top"))
+
+
+@mods_move_app.command("bottom")
+def mods_move_bottom(
+    ctx: typer.Context,
+    mod_id: Annotated[int, typer.Argument(help="Workshop id of the mod to move.")],
+) -> None:
+    """Move MOD_ID to the bottom of the stack."""
+    _do_mods_edit(ctx, "mods move bottom", lambda p: move_mod(p, mod_id, "bottom"))
+
+
+@mods_move_app.command("above")
+def mods_move_above(
+    ctx: typer.Context,
+    ordinal: Annotated[int, typer.Argument(help="1-indexed reference ordinal.")],
+    mod_id: Annotated[int, typer.Argument(help="Workshop id of the mod to move.")],
+) -> None:
+    """Move MOD_ID above the entry at ORDINAL."""
+    _do_mods_edit(
+        ctx, "mods move above", lambda p: move_mod(p, mod_id, "above", anchor=ordinal)
+    )
+
+
+@mods_move_app.command("below")
+def mods_move_below(
+    ctx: typer.Context,
+    ordinal: Annotated[int, typer.Argument(help="1-indexed reference ordinal.")],
+    mod_id: Annotated[int, typer.Argument(help="Workshop id of the mod to move.")],
+) -> None:
+    """Move MOD_ID below the entry at ORDINAL."""
+    _do_mods_edit(
+        ctx, "mods move below", lambda p: move_mod(p, mod_id, "below", anchor=ordinal)
+    )
+
+
+@mods_app.command("rm")
+def mods_rm(
+    ctx: typer.Context,
+    mod_id: Annotated[int, typer.Argument(help="Workshop id of the mod to remove.")],
+) -> None:
+    """Remove MOD_ID from the stack."""
+    _do_mods_edit(ctx, "mods rm", lambda p: remove_mod(p, mod_id))
 
 
 @app.command()

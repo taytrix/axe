@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from rich.console import Console
+from rich.table import Table
 
 from axe import __version__
 from axe.errors import AxeError, ExitCode
@@ -222,20 +223,33 @@ def print_sync(outcome: SyncOutcome, opts: OutputOptions) -> None:
 
 
 _MOD_STATE_MARKER: dict[str, str] = {
-    "current": "[green]ok[/green]   ",
+    "current": "[green]ok[/green]",
     "stale": "[yellow]stale[/yellow]",
-    "missing_local": "[red]miss[/red] ",
-    "missing_remote": "[red]gone[/red] ",
+    "missing_local": "[red]miss[/red]",
+    "missing_remote": "[red]gone[/red]",
     "unmanaged": "[dim]extra[/dim]",
 }
 
 
-def print_mods(report: FreshnessReport, opts: OutputOptions) -> None:
+def print_mods(
+    report: FreshnessReport,
+    opts: OutputOptions,
+    *,
+    root_label: str | None = None,
+) -> None:
     console = Console(no_color=not opts.color)
+    if root_label:
+        console.print(f"[bold]axe / {root_label}[/bold]\n")
     if not report.items:
         console.print("[dim]no declared mods[/dim]")
         return
-    for item in report.items:
-        marker = _MOD_STATE_MARKER.get(item.state, "[dim]?[/dim]    ")
-        title = item.title or "<unknown>"
-        console.print(f"{marker}  {item.id}  [dim]{title}[/dim]")
+    table = Table(show_header=True, header_style="dim", box=None, pad_edge=False)
+    table.add_column("#", justify="right")
+    table.add_column("state")
+    table.add_column("id", justify="right")
+    table.add_column("title")
+    for ordinal, item in enumerate(report.items, start=1):
+        marker = _MOD_STATE_MARKER.get(item.state, "[dim]?[/dim]")
+        title = item.title or "[dim]<unknown>[/dim]"
+        table.add_row(str(ordinal), marker, str(item.id), title)
+    console.print(table)

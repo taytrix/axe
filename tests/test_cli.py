@@ -267,3 +267,114 @@ def test_logs_tail_json_follow_is_misuse(synthetic_install_with_toml: Path) -> N
         ],
     )
     assert result.exit_code == int(ExitCode.MISUSE)
+
+
+# ---------- mods verbs (PR4) -----------------------------------------------
+
+
+def _block_workshop_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force the Workshop API to fail so mod list runs offline (no fixture noise)."""
+    from axe import mods, workshop
+    from axe.errors import AxeError
+
+    def fail(_ids, fetch=None):  # noqa: ANN001
+        raise AxeError("workshop_api", "test: API blocked")
+
+    monkeypatch.setattr(workshop, "get_published_file_details", fail)
+    monkeypatch.setattr(mods, "get_published_file_details", fail)
+
+
+def _read_ids(toml_path: Path) -> list[int]:
+    import tomlkit
+
+    return [int(x) for x in tomlkit.parse(toml_path.read_text())["mods"]["ids"]]
+
+
+def test_mods_add_top_writes_toml(synthetic_install_with_toml: Path) -> None:
+    toml = synthetic_install_with_toml / "axe.toml"
+    result = runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "12345"])
+    assert result.exit_code == 0
+    assert _read_ids(toml) == [12345]
+
+
+def test_mods_add_above_reorders(synthetic_install_with_toml: Path) -> None:
+    toml = synthetic_install_with_toml / "axe.toml"
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "111"])
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "bottom", "222"])
+    result = runner.invoke(app, ["--config", str(toml), "mods", "add", "above", "2", "999"])
+    assert result.exit_code == 0
+    assert _read_ids(toml) == [111, 999, 222]
+
+
+def test_mods_add_below_reorders(synthetic_install_with_toml: Path) -> None:
+    toml = synthetic_install_with_toml / "axe.toml"
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "111"])
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "bottom", "222"])
+    result = runner.invoke(app, ["--config", str(toml), "mods", "add", "below", "1", "999"])
+    assert result.exit_code == 0
+    assert _read_ids(toml) == [111, 999, 222]
+
+
+def test_mods_move_top(synthetic_install_with_toml: Path) -> None:
+    toml = synthetic_install_with_toml / "axe.toml"
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "111"])
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "bottom", "222"])
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "bottom", "333"])
+    result = runner.invoke(app, ["--config", str(toml), "mods", "move", "top", "333"])
+    assert result.exit_code == 0
+    assert _read_ids(toml) == [333, 111, 222]
+
+
+def test_mods_rm(synthetic_install_with_toml: Path) -> None:
+    toml = synthetic_install_with_toml / "axe.toml"
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "111"])
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "bottom", "222"])
+    result = runner.invoke(app, ["--config", str(toml), "mods", "rm", "111"])
+    assert result.exit_code == 0
+    assert _read_ids(toml) == [222]
+
+
+def test_mods_rm_missing_is_config_error(synthetic_install_with_toml: Path) -> None:
+    toml = synthetic_install_with_toml / "axe.toml"
+    result = runner.invoke(app, ["--config", str(toml), "mods", "rm", "12345"])
+    assert result.exit_code == int(ExitCode.CONFIG)
+
+
+def test_mods_anchor_out_of_range_is_config_error(synthetic_install_with_toml: Path) -> None:
+    toml = synthetic_install_with_toml / "axe.toml"
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "111"])
+    result = runner.invoke(app, ["--config", str(toml), "mods", "add", "above", "9", "222"])
+    assert result.exit_code == int(ExitCode.CONFIG)
+
+
+def test_mods_add_duplicate_is_config_error(synthetic_install_with_toml: Path) -> None:
+    toml = synthetic_install_with_toml / "axe.toml"
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "111"])
+    result = runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "111"])
+    assert result.exit_code == int(ExitCode.CONFIG)
+
+
+def test_mods_list_envelope_has_ordinals(
+    monkeypatch: pytest.MonkeyPatch, synthetic_install_with_toml: Path
+) -> None:
+    _block_workshop_api(monkeypatch)
+    toml = synthetic_install_with_toml / "axe.toml"
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "111"])
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "bottom", "222"])
+    result = runner.invoke(app, ["--json", "--config", str(toml), "mods", "list"])
+    envelope = json.loads(result.stdout)
+    items = envelope["data"]["items"]
+    assert [it["ordinal"] for it in items] == [1, 2]
+    assert [it["id"] for it in items] == [111, 222]
+
+
+def test_mods_bare_invokes_list(
+    monkeypatch: pytest.MonkeyPatch, synthetic_install_with_toml: Path
+) -> None:
+    _block_workshop_api(monkeypatch)
+    toml = synthetic_install_with_toml / "axe.toml"
+    runner.invoke(app, ["--config", str(toml), "mods", "add", "top", "111"])
+    result = runner.invoke(app, ["--json", "--config", str(toml), "mods"])
+    envelope = json.loads(result.stdout)
+    assert envelope["command"] == "mods"
+    assert envelope["data"]["items"][0]["id"] == 111
