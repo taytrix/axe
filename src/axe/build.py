@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import shutil
 import sys
+from contextlib import nullcontext
 from dataclasses import dataclass
+
+from rich.console import Console
 
 from axe.context import Context
 from axe.errors import AxeError
@@ -82,21 +85,22 @@ def _read_latest_buildid(
     if not binary:
         warnings.append("steamcmd binary not found; latest build unknown")
         return None
-    # Narrate the slow call so an interactive `axe monitor` doesn't feel like a hang.
-    # Skip when tests stub the spawn, and skip when stderr isn't a TTY (systemd timer).
-    if spawn is None and sys.stderr.isatty():
-        print(
-            "fetching latest build via steamcmd (this can take 10-30s) ...",
-            file=sys.stderr,
-            flush=True,
-        )
     req = SteamcmdRequest(
         binary=binary,
         force_install_dir=str(ctx.layout.root),
         actions=[AppInfoPrint(appid=SERVER_APPID)],
     )
+    # Spinner while steamcmd does its 10-30s login + info fetch. Suppress in tests
+    # (spawn stubbed) and in non-TTY (systemd-timer monitor ticks).
+    if spawn is None and sys.stderr.isatty():
+        spinner = Console(stderr=True).status(
+            "[bold blue]fetching latest build via steamcmd (10-30s)...[/bold blue]"
+        )
+    else:
+        spinner = nullcontext()
     try:
-        outcome = run_steamcmd(req, spawn=spawn, timeout=60)
+        with spinner:
+            outcome = run_steamcmd(req, spawn=spawn, timeout=60)
     except AxeError as e:
         warnings.append(f"steamcmd app_info_print: {e.message}")
         return None

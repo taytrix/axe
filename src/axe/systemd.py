@@ -32,12 +32,17 @@ def parse_show(text: str) -> dict[str, str]:
 
 
 def systemctl_show(unit: str) -> dict[str, str]:
-    """Run `systemctl --user show <unit>` and return parsed key=value lines."""
+    """Run `systemctl --user show <unit> --timestamp=unix`.
+
+    `--timestamp=unix` returns ActiveEnterTimestamp as `@<epoch>` instead of
+    a local-wallclock string. This keeps uptime math TZ-free. Requires
+    systemd 244+ (October 2019) — universal on any vaguely modern distro.
+    """
     if shutil.which("systemctl") is None:
         raise AxeError("lifecycle", "systemctl not found on PATH")
     try:
         proc = subprocess.run(
-            ["systemctl", "--user", "show", unit],
+            ["systemctl", "--user", "show", unit, "--timestamp=unix"],
             capture_output=True,
             text=True,
             check=False,

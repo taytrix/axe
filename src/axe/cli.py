@@ -12,6 +12,7 @@ import typer
 from axe import __version__
 from axe.config import Config, save_config
 from axe.context import load_context
+from axe.doctor import run_doctor
 from axe.errors import AxeError, ExitCode
 from axe.layout import layout_at
 from axe.lifecycle import restart_server
@@ -21,6 +22,8 @@ from axe.mods import has_drift, run_mods_check
 from axe.monitor import run_monitor_tick
 from axe.output import (
     OutputOptions,
+    busy,
+    format_uptime,
     print_front_door,
     print_mods,
     print_status,
@@ -32,7 +35,7 @@ from axe.output import (
     status_envelope,
 )
 from axe.state import load_state, state_path
-from axe.status import relative_age, status_from_saved
+from axe.status import _server_status_from_show, relative_age, status_from_saved
 from axe.steamcmd import require_steamcmd_on_path
 from axe.sync import run_sync
 from axe.systemd import SystemctlVerb, systemctl_show, systemctl_verb
@@ -130,6 +133,7 @@ def update(
         outcome = run_update(target_tag=tag)
     except AxeError as e:
         render_error(command="update", error=e, opts=opts)
+    target_version = outcome.target.removeprefix("python-v")
     if not outcome.upgraded:
         render_ok(
             command="update",
@@ -139,7 +143,7 @@ def update(
                 "upgraded": False,
             },
             opts=opts,
-            human=lambda: print(f"already at {outcome.target}; nothing to do"),
+            human=lambda: print(f"already at {target_version}; nothing to do"),
         )
         return
     render_ok(
@@ -151,7 +155,7 @@ def update(
             "command": outcome.command,
         },
         opts=opts,
-        human=lambda: print(f"upgraded {outcome.previous} → {outcome.target}"),
+        human=lambda: print(f"upgraded {outcome.previous} → {target_version}"),
     )
 
 
@@ -314,6 +318,40 @@ def sync(ctx: typer.Context) -> None:
     )
     if outcome.missing:
         raise typer.Exit(int(ExitCode.DRIFT))
+
+
+@app.command()
+def doctor(ctx: typer.Context) -> None:
+    """Walk the install and report each invariant: ✓ in order, ✗ needs attention."""
+    opts = _opts(ctx)
+    try:
+        context = load_context(_config_path(ctx))
+    except AxeError as e:
+        render_error(command="doctor", error=e, opts=opts)
+    report = run_doctor(context)
+    data = {
+        "all_ok": report.all_ok,
+        "checks": [
+            {"name": c.name, "ok": c.ok, "detail": c.detail} for c in report.checks
+        ],
+    }
+    render_ok(
+        command="doctor",
+        data=data,
+        opts=opts,
+        human=lambda: _print_doctor(report),
+    )
+    if not report.all_ok:
+        raise typer.Exit(int(ExitCode.DISCOVERY))
+
+
+def _print_doctor(report) -> None:  # noqa: ANN001 — DoctorReport
+    from rich.console import Console
+
+    console = Console()
+    for c in report.checks:
+        mark = "[green]✓[/green]" if c.ok else "[red]✗[/red]"
+        console.print(f"{mark} {c.name:24} [dim]{c.detail}[/dim]")
 
 
 @app.command()
@@ -657,11 +695,21 @@ def _unit_print(ctx: typer.Context, target: str) -> None:
     )
 
 
+_VERB_NARRATION: dict[str, str] = {
+    "start": "Starting {unit}...",
+    "stop": "Stopping {unit} (Conan typically takes ~60s to clean up)...",
+    "restart": "Restarting {unit} (this can take up to ~90s)...",
+}
+
+
 def _server_lifecycle(ctx: typer.Context, verb: SystemctlVerb, command: str) -> None:
     opts = _opts(ctx)
     try:
         context = load_context(_config_path(ctx))
-        result = systemctl_verb(context.config.effective_unit(), verb)
+        unit = context.config.effective_unit()
+        narration = _VERB_NARRATION.get(verb, f"{verb} {{unit}}...").format(unit=unit)
+        with busy(narration, opts):
+            result = systemctl_verb(unit, verb)
     except AxeError as e:
         if _looks_like_unit_not_found(e.message):
             render_fail(
@@ -705,7 +753,10 @@ def server_restart(ctx: typer.Context) -> None:
     opts = _opts(ctx)
     try:
         context = load_context(_config_path(ctx))
-        outcome = restart_server(context)
+        unit = context.config.effective_unit()
+        narration = _VERB_NARRATION["restart"].format(unit=unit)
+        with busy(narration, opts):
+            outcome = restart_server(context)
     except AxeError as e:
         if _looks_like_unit_not_found(e.message):
             render_fail(
@@ -734,32 +785,48 @@ def server_restart(ctx: typer.Context) -> None:
 
 @server_app.command("status")
 def server_status(ctx: typer.Context) -> None:
-    """Summarized systemctl --user show <unit>."""
+    """Live systemctl status for the server unit (matches `axe status.server`)."""
     opts = _opts(ctx)
     try:
         context = load_context(_config_path(ctx))
         unit_name = context.config.effective_unit()
         show = systemctl_show(unit_name)
     except AxeError as e:
+        if _looks_like_unit_not_found(e.message):
+            render_fail(
+                command="server status",
+                code=ExitCode.DISCOVERY,
+                message=(
+                    f"{e.message}\n"
+                    "  run `axe unit install` to write the unit file, then retry"
+                ),
+                opts=opts,
+            )
         render_error(command="server status", error=e, opts=opts)
-
-    pid_raw = show.get("MainPID", "0")
-    try:
-        pid_int = int(pid_raw)
-    except ValueError:
-        pid_int = 0
+    server = _server_status_from_show(unit_name, show)
     data = {
-        "unit": unit_name,
-        "active_state": show.get("ActiveState", "unknown"),
-        "sub_state": show.get("SubState", "unknown"),
-        "main_pid": pid_int if pid_int > 0 else None,
+        "unit": server.unit,
+        "active_state": server.active_state,
+        "sub_state": server.sub_state,
+        "main_pid": server.main_pid,
+        "uptime_seconds": server.uptime_seconds,
     }
     render_ok(
         command="server status",
         data=data,
         opts=opts,
-        human=lambda: print(f"{unit_name}: {data['active_state']} ({data['sub_state']})"),
+        human=lambda: _print_server_status_line(server),
     )
+
+
+def _print_server_status_line(server) -> None:  # noqa: ANN001 — ServerStatus dataclass
+    """One-line summary; matches the `server` section of `axe status`."""
+    bits = [server.unit, f"{server.active_state} ({server.sub_state})"]
+    if server.main_pid is not None:
+        bits.append(f"pid {server.main_pid}")
+    if server.uptime_seconds is not None and server.active_state == "active":
+        bits.append(f"up {format_uptime(server.uptime_seconds)}")
+    print(" — ".join(bits))
 
 
 @logs_app.command("path")

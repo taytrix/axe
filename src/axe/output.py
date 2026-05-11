@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
@@ -37,6 +38,22 @@ def should_color(no_color: bool) -> bool:
     if no_color or os.environ.get("NO_COLOR"):
         return False
     return sys.stdout.isatty()
+
+
+@contextmanager
+def busy(message: str, opts: OutputOptions) -> Iterator[None]:
+    """Spin with `message` for the body's duration.
+
+    Stays silent when stdout is JSON-bound or when stderr isn't a TTY —
+    e.g. a systemd-timer monitor tick. Rich Status renders to stderr so
+    the envelope on stdout stays clean.
+    """
+    if opts.json or not sys.stderr.isatty():
+        yield
+        return
+    console = Console(stderr=True, no_color=not opts.color)
+    with console.status(f"[bold blue]{message}[/bold blue]"):
+        yield
 
 
 # ---------- envelope I/O ----------------------------------------------------
@@ -126,6 +143,7 @@ def print_front_door(opts: OutputOptions) -> None:
     console.print("[dim]occasional[/dim]")
     console.print("  axe server up       start the systemd service")
     console.print("  axe server restart  restart the systemd service")
+    console.print("  axe doctor          diagnose the install (✓ / ✗ per invariant)")
     console.print("  axe validate        force steam to re-verify the install")
     console.print("  axe update          upgrade axe to the latest release")
 
@@ -186,8 +204,8 @@ def print_status(s: Status, opts: OutputOptions, *, as_of: str | None = None) ->
     console.print(f"  sub          {s.server.sub_state}")
     if s.server.main_pid is not None:
         console.print(f"  pid          {s.server.main_pid}")
-    if s.server.uptime_seconds is not None:
-        console.print(f"  uptime       {_format_uptime(s.server.uptime_seconds)}")
+    if s.server.uptime_seconds is not None and s.server.active_state == "active":
+        console.print(f"  uptime       {format_uptime(s.server.uptime_seconds)}")
     if s.settings.server_name:
         console.print(f"  name         \"{s.settings.server_name}\"")
     if s.settings.rcon_port is not None:
@@ -216,10 +234,13 @@ def print_status(s: Status, opts: OutputOptions, *, as_of: str | None = None) ->
             console.print(f"[yellow]warn[/yellow]    {w}")
 
 
-def _format_uptime(seconds: int) -> str:
+def format_uptime(seconds: int) -> str:
     hours, remainder = divmod(seconds, 3600)
     minutes = remainder // 60
     return f"{hours}h {minutes}m" if hours else f"{minutes}m"
+
+
+_format_uptime = format_uptime  # backward-compat alias (existing print_status callsite)
 
 
 # ---------- sync ------------------------------------------------------------
@@ -227,10 +248,21 @@ def _format_uptime(seconds: int) -> str:
 
 def print_sync(outcome: SyncOutcome, opts: OutputOptions) -> None:
     console = Console(no_color=not opts.color)
+    did_anything = (
+        bool(outcome.downloaded)
+        or bool(outcome.missing)
+        or outcome.modlist_changed
+        or outcome.base_build_updated
+    )
+    if not did_anything:
+        console.print("[green]sync[/green]: nothing to do (no drift)")
+        return
     for wsid in outcome.downloaded:
         console.print(f"[green]down[/green]    {wsid}")
     for wsid in outcome.missing:
         console.print(f"[red]miss[/red]    {wsid}")
+    if outcome.base_build_updated:
+        console.print("[blue]build[/blue]   updated to latest")
     label = "[blue]wrote[/blue]" if outcome.modlist_changed else "[dim]nochg[/dim]"
     console.print(f"{label}   {outcome.modlist_path}")
 

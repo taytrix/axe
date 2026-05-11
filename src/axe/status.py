@@ -78,15 +78,21 @@ def _server_status_from_show(unit: str, show: dict[str, str]) -> ServerStatus:
 
 
 def _compute_uptime(show: dict[str, str]) -> int | None:
-    """ActiveEnterTimestamp is 'DOW YYYY-MM-DD HH:MM:SS TZ'; parse the middle two tokens."""
-    tokens = show.get("ActiveEnterTimestamp", "").split()
-    if len(tokens) < 3:
+    """ActiveEnterTimestamp is `@<unix-epoch>` under `--timestamp=unix`.
+
+    Empty string when the unit has never been active. Falls back to a None
+    return for any unexpected shape rather than crashing.
+    """
+    raw = show.get("ActiveEnterTimestamp", "")
+    if not raw or not raw.startswith("@"):
         return None
     try:
-        dt = datetime.strptime(f"{tokens[1]} {tokens[2]}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+        epoch = int(raw[1:])
     except ValueError:
         return None
-    return max(0, int((datetime.now(UTC) - dt).total_seconds()))
+    if epoch == 0:
+        return None
+    return max(0, int(datetime.now(UTC).timestamp() - epoch))
 
 
 def status_from_saved(saved: SavedState, ctx: Context) -> Status:
