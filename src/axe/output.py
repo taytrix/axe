@@ -113,21 +113,28 @@ def render_error(*, command: str, error: AxeError, opts: OutputOptions) -> NoRet
 def print_front_door(opts: OutputOptions) -> None:
     console = Console(no_color=not opts.color)
     console.print(f"[bold]axe {__version__}[/bold]\n")
-    console.print("[dim]common[/dim]")
-    console.print("  axe status          show what is true")
-    console.print("  axe sync            reconcile mods and modlist")
-    console.print("  axe monitor         one tick (used by the systemd timer)")
+    console.print("[dim]first-run[/dim]")
+    console.print("  axe install <path>  cold-start: write axe.toml + run steamcmd")
+    console.print("  axe unit install    wire systemd user units (server + monitor)")
+    console.print()
+    console.print("[dim]daily[/dim]")
+    console.print("  axe status          what is true (offline; reads state.json)")
+    console.print("  axe sync            reconcile any drift in one cycle")
+    console.print("  axe monitor         refresh state.json (one tick)")
+    console.print("  axe mods            declared mods + freshness")
+    console.print()
+    console.print("[dim]occasional[/dim]")
     console.print("  axe server up       start the systemd service")
     console.print("  axe server restart  restart the systemd service")
-    console.print("  axe mods            declared mods + freshness")
-    console.print("  axe unit            print systemd user units")
+    console.print("  axe validate        force steam to re-verify the install")
+    console.print("  axe update          upgrade axe to the latest release")
 
 
 # ---------- status ----------------------------------------------------------
 
 
-def status_envelope(s: Status) -> dict[str, object]:
-    return {
+def status_envelope(s: Status, *, checked_at: str | None = None) -> dict[str, object]:
+    envelope: dict[str, object] = {
         "config_path": s.config_path,
         "root": s.root,
         "drifted": s.drifted,
@@ -161,12 +168,18 @@ def status_envelope(s: Status) -> dict[str, object]:
             "max_players": s.settings.max_players,
         },
     }
+    if checked_at is not None:
+        envelope["checked_at"] = checked_at
+    return envelope
 
 
-def print_status(s: Status, opts: OutputOptions) -> None:
+def print_status(s: Status, opts: OutputOptions, *, as_of: str | None = None) -> None:
     console = Console(no_color=not opts.color)
     console.print(f"[bold]axe / {Path(s.config_path).parent.name}[/bold]")
-    console.print(f"[dim]root[/dim]         {s.root}\n")
+    console.print(f"[dim]root[/dim]         {s.root}")
+    if as_of:
+        console.print(f"[dim]as of[/dim]        {as_of}")
+    console.print()
     console.print("[dim]server[/dim]")
     console.print(f"  unit         {s.server.unit}")
     console.print(f"  active       {s.server.active_state}")

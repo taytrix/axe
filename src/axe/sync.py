@@ -100,7 +100,8 @@ def run_sync(
         return outcome
 
     out_log = log_file or reserve_steamcmd_log(ctx.layout.root, "sync")
-    print(f"running steamcmd sync (log: {out_log})", file=sys.stderr, flush=True)
+    if sys.stderr.isatty():
+        print(f"running steamcmd sync (log: {out_log})", file=sys.stderr, flush=True)
     outcome_steamcmd = run_steamcmd(
         SteamcmdRequest(
             binary=binary,

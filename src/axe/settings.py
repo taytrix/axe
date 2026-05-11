@@ -40,9 +40,17 @@ def empty_server_settings(warnings: list[str] | None = None) -> ServerSettings:
 
 
 def read_server_settings(layout: Layout) -> ServerSettings:
-    """Parse ServerSettings.ini if present. ENOENT and parse errors degrade to warnings."""
+    """Parse ServerSettings.ini if present.
+
+    A fresh install has no Saved/ directory yet — the server creates it on
+    first boot. That's not a drift signal; we return empty settings silently
+    in that case. Only warn if Saved/ exists but the .ini is missing.
+    """
     path = layout.server_settings_ini
     if not path.exists():
+        saved_dir = path.parent.parent.parent  # Saved/
+        if not saved_dir.exists():
+            return empty_server_settings()  # never-booted; silent
         return empty_server_settings(
             warnings=[f"ServerSettings.ini not found at {path}"],
         )

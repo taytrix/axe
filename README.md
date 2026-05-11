@@ -13,7 +13,7 @@ axe            owns the Conan / Workshop / Steam understanding layer
 ## Install
 
 ```
-uv tool install --from git+https://github.com/taytrix/axe@python-v0.3.2 axe
+uv tool install --from git+https://github.com/taytrix/axe@python-v0.3.3 axe
 ```
 
 After this first install, `axe update` carries you forward — it queries
@@ -26,29 +26,26 @@ GitHub for the latest python-v* tag and runs `uv tool install --force`.
 axe install ~/conan
 cd ~/conan
 
-# 2. declare some mods (stack ops; ordinals are 1-indexed)
+# 2. wire systemd (writes axe-conan.service + axe-conan-monitor.{service,timer})
+axe unit install
+systemctl --user enable --now axe-conan
+systemctl --user enable --now axe-conan-monitor.timer
+loginctl enable-linger $USER
+
+# 3. declare some mods (stack ops; ordinals are 1-indexed)
 axe mods add top    880454836         # prepend
 axe mods add bottom 1159180273        # append
 axe mods                              # list with freshness state
 axe mods move above 1 1159180273      # reorder
 
-# 3. reconcile any drift (mods + base build) in one cycle
+# 4. reconcile any drift (mods + base build) in one cycle
 axe sync
 
-# 4. see what is true
+# 5. see what is true (offline; reads state.json + shows "as of X ago")
 axe status
 
-# 5. (later) force a steam integrity-check pass
+# 6. (later) force a steam integrity-check pass
 axe validate
-
-# 6. (optional) wire systemd so the server auto-starts and drift detection runs
-axe unit         > ~/.config/systemd/user/axe-conan.service
-axe unit monitor                                       # prints .service + .timer pair
-# split the pair and tee each half into ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now axe-conan
-systemctl --user enable --now axe-conan-monitor.timer
-loginctl enable-linger $USER
 ```
 
 axe finds `axe.toml` by walking up from the current directory (git-style), so

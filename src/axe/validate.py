@@ -36,7 +36,8 @@ def run_validate(
     binary = steamcmd_binary or resolve_steamcmd(ctx.config.steamcmd.binary)
 
     out_log = log_file or reserve_steamcmd_log(ctx.layout.root, "validate")
-    print(f"running steamcmd validate (log: {out_log})", file=sys.stderr, flush=True)
+    if sys.stderr.isatty():
+        print(f"running steamcmd validate (log: {out_log})", file=sys.stderr, flush=True)
     outcome = run_steamcmd(
         SteamcmdRequest(
             binary=binary,

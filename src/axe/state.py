@@ -13,6 +13,7 @@ from axe.io import atomic_write
 
 class SavedServer(BaseModel):
     model_config = {"extra": "allow"}
+    unit: str = ""
     active_state: str
     sub_state: str
     main_pid: int | None = None
@@ -32,7 +33,19 @@ class SavedBuild(BaseModel):
     model_config = {"extra": "allow"}
     installed_buildid: str | None = None
     latest_buildid: str | None = None
+    binary_present: bool = False
     drifted: bool = False
+
+
+class SavedSettings(BaseModel):
+    model_config = {"extra": "allow"}
+    server_name: str | None = None
+    rcon_enabled: bool = False
+    rcon_port: int | None = None
+    rcon_password_set: bool = False
+    admin_password_set: bool = False
+    server_password_set: bool = False
+    max_players: int | None = None
 
 
 def empty_saved_build() -> SavedBuild:
@@ -47,6 +60,7 @@ class SavedState(BaseModel):
     server: SavedServer
     mods: SavedMods
     build: SavedBuild = SavedBuild()
+    settings: SavedSettings = SavedSettings()
     drift: bool
     warnings: list[str] = []
 

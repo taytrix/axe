@@ -41,6 +41,7 @@ def run_monitor_tick(
             "axe_version": __version__,
             "checked_at": when.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "server": {
+                "unit": snapshot.server.unit,
                 "active_state": snapshot.server.active_state,
                 "sub_state": snapshot.server.sub_state,
                 "main_pid": snapshot.server.main_pid,
@@ -56,7 +57,17 @@ def run_monitor_tick(
             "build": {
                 "installed_buildid": snapshot.build.installed_buildid,
                 "latest_buildid": snapshot.build.latest_buildid,
+                "binary_present": snapshot.build.binary_present,
                 "drifted": snapshot.build.drifted,
+            },
+            "settings": {
+                "server_name": snapshot.settings.server_name,
+                "rcon_enabled": snapshot.settings.rcon_enabled,
+                "rcon_port": snapshot.settings.rcon_port,
+                "rcon_password_set": snapshot.settings.rcon_password_set,
+                "admin_password_set": snapshot.settings.admin_password_set,
+                "server_password_set": snapshot.settings.server_password_set,
+                "max_players": snapshot.settings.max_players,
             },
             "drift": drift,
             "warnings": warnings,

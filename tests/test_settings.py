@@ -13,11 +13,18 @@ def _write_ini(root: Path, body: str) -> Path:
     return ini_path
 
 
-def test_missing_ini_warns(synthetic_install: Path) -> None:
+def test_missing_ini_with_no_saved_dir_is_silent(synthetic_install: Path) -> None:
+    """Fresh install (server never booted) → no Saved/ dir → silent empty settings."""
     s = read_server_settings(layout_at(synthetic_install))
     assert s.server_name is None
-    assert s.rcon_port is None
-    assert s.rcon_enabled is False
+    assert s.warnings == []
+
+
+def test_missing_ini_with_saved_dir_warns(synthetic_install: Path) -> None:
+    """Server has booted (Saved/ exists) but .ini still missing → that's a real warning."""
+    saved_dir = synthetic_install / "ConanSandbox" / "Saved" / "Config" / "LinuxServer"
+    saved_dir.mkdir(parents=True)  # exists but no ServerSettings.ini inside
+    s = read_server_settings(layout_at(synthetic_install))
     assert any("ServerSettings.ini not found" in w for w in s.warnings)
 
 

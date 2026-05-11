@@ -82,9 +82,9 @@ def _read_latest_buildid(
     if not binary:
         warnings.append("steamcmd binary not found; latest build unknown")
         return None
-    # Narrate the slow call so `axe status` doesn't feel like a hang. Skip when
-    # tests stub the spawn (output would clutter capture).
-    if spawn is None:
+    # Narrate the slow call so an interactive `axe monitor` doesn't feel like a hang.
+    # Skip when tests stub the spawn, and skip when stderr isn't a TTY (systemd timer).
+    if spawn is None and sys.stderr.isatty():
         print(
             "fetching latest build via steamcmd (this can take 10-30s) ...",
             file=sys.stderr,

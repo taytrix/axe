@@ -139,9 +139,14 @@ def test_status_envelope_shape(
     monkeypatch: pytest.MonkeyPatch,
     synthetic_install_with_toml: Path,
 ) -> None:
+    """`axe status` reads state.json. Populate it via `axe monitor` first."""
     _stub_systemctl(
         monkeypatch,
         {"ActiveState": "inactive", "SubState": "dead", "MainPID": "0"},
+    )
+    runner.invoke(
+        app,
+        ["--config", str(synthetic_install_with_toml / "axe.toml"), "monitor"],
     )
     result = runner.invoke(
         app,
@@ -156,10 +161,189 @@ def test_status_envelope_shape(
     assert data["server"]["active_state"] == "inactive"
     assert data["server"]["main_pid"] is None
     assert data["mods"]["declared"] == 0
-    # settings block is always present; the synthetic install has no .ini → all None/False
     assert data["settings"]["server_name"] is None
-    assert data["settings"]["rcon_enabled"] is False
-    assert data["settings"]["admin_password_set"] is False
+    assert "checked_at" in data  # offline-status: state.json timestamp surfaces
+
+
+def test_status_without_state_json_errors_with_hint(
+    monkeypatch: pytest.MonkeyPatch,
+    synthetic_install_with_toml: Path,
+) -> None:
+    _stub_systemctl(
+        monkeypatch,
+        {"ActiveState": "inactive", "SubState": "dead", "MainPID": "0"},
+    )
+    result = runner.invoke(
+        app,
+        ["--config", str(synthetic_install_with_toml / "axe.toml"), "status"],
+    )
+    assert result.exit_code == int(ExitCode.DISCOVERY)
+    assert "axe monitor" in (result.stderr or "") or "axe monitor" in result.output
+
+
+def test_status_shows_as_of_relative_time(
+    monkeypatch: pytest.MonkeyPatch,
+    synthetic_install_with_toml: Path,
+) -> None:
+    _stub_systemctl(
+        monkeypatch,
+        {"ActiveState": "inactive", "SubState": "dead", "MainPID": "0"},
+    )
+    runner.invoke(
+        app,
+        ["--config", str(synthetic_install_with_toml / "axe.toml"), "monitor"],
+    )
+    result = runner.invoke(
+        app,
+        ["--config", str(synthetic_install_with_toml / "axe.toml"), "status"],
+    )
+    assert result.exit_code == 0
+    assert "as of" in result.output
+
+
+def test_unit_install_writes_server_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    synthetic_install_with_toml: Path,
+) -> None:
+    """`axe unit install` writes the unit file under the (faked) home config dir."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    # daemon-reload would fail in a test env without systemctl; stub it out
+    import subprocess as sp
+
+    from axe import cli
+
+    def fake_run(*_a, **_kw) -> sp.CompletedProcess[str]:
+        return sp.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    result = runner.invoke(
+        app,
+        [
+            "--config",
+            str(synthetic_install_with_toml / "axe.toml"),
+            "unit",
+            "install",
+            "server",
+        ],
+    )
+    assert result.exit_code == 0
+    assert (fake_home / ".config" / "systemd" / "user" / "axe-conan.service").exists()
+
+
+def test_unit_install_all_writes_three_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    synthetic_install_with_toml: Path,
+) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    import subprocess as sp
+
+    from axe import cli
+
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *_a, **_kw: sp.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+    )
+    result = runner.invoke(
+        app,
+        ["--config", str(synthetic_install_with_toml / "axe.toml"), "unit", "install"],
+    )
+    assert result.exit_code == 0
+    user_dir = fake_home / ".config" / "systemd" / "user"
+    assert (user_dir / "axe-conan.service").exists()
+    assert (user_dir / "axe-conan-monitor.service").exists()
+    assert (user_dir / "axe-conan-monitor.timer").exists()
+
+
+def test_server_up_unit_not_found_points_at_unit_install(
+    monkeypatch: pytest.MonkeyPatch,
+    synthetic_install_with_toml: Path,
+) -> None:
+    from axe import cli, systemd
+    from axe.errors import AxeError as AE
+
+    def fake_verb(*_a, **_kw):  # noqa: ANN001 — stub
+        raise AE("lifecycle", "systemctl start axe-conan.service failed: Unit not found.")
+
+    monkeypatch.setattr(systemd, "systemctl_verb", fake_verb)
+    monkeypatch.setattr(cli, "systemctl_verb", fake_verb)
+    result = runner.invoke(
+        app,
+        ["--config", str(synthetic_install_with_toml / "axe.toml"), "server", "up"],
+    )
+    assert result.exit_code == int(ExitCode.DISCOVERY)
+    combined = (result.stderr or "") + (result.output or "")
+    assert "axe unit install" in combined
+
+
+def test_install_post_action_writes_state_json(tmp_path: Path) -> None:
+    """`axe install` ends by writing state.json so `axe status` works immediately."""
+    from axe import cli, monitor, sync
+    from axe.monitor import MonitorOutcome
+    from axe.state import SavedState
+    from axe.sync import SyncOutcome
+
+    seen: dict[str, object] = {}
+
+    def fake_sync(context, **_kw):  # noqa: ANN001
+        return SyncOutcome(
+            downloaded=[],
+            missing=[],
+            modlist_path=str(context.layout.modlist_txt),
+            modlist_changed=False,
+            log_file=None,
+            base_build_updated=True,
+            warnings=[],
+        )
+
+    def fake_monitor(context, **_kw):  # noqa: ANN001
+        seen["called"] = True
+        seen["root"] = context.layout.root
+        return MonitorOutcome(
+            state=SavedState.model_validate(
+                {
+                    "schema": 1,
+                    "axe_version": "test",
+                    "checked_at": "2026-05-11T00:00:00Z",
+                    "server": {
+                        "unit": "axe-test.service",
+                        "active_state": "inactive",
+                        "sub_state": "dead",
+                    },
+                    "mods": {
+                        "declared": 0,
+                        "current": 0,
+                        "stale": 0,
+                        "missing_local": 0,
+                        "missing_remote": 0,
+                    },
+                    "drift": False,
+                }
+            ),
+            state_path_str="state.json",
+            hook_fired=False,
+            hook_warning=None,
+        )
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(cli, "require_steamcmd_on_path", lambda: "/usr/bin/steamcmd")
+        monkeypatch.setattr(sync, "run_sync", fake_sync)
+        monkeypatch.setattr(cli, "run_sync", fake_sync)
+        monkeypatch.setattr(monitor, "run_monitor_tick", fake_monitor)
+        monkeypatch.setattr(cli, "run_monitor_tick", fake_monitor)
+        target = tmp_path / "freshconan"
+        result = runner.invoke(app, ["install", str(target)])
+        assert result.exit_code == 0
+        assert seen.get("called") is True
+    finally:
+        monkeypatch.undo()
 
 
 def test_status_missing_config(tmp_path: Path) -> None:

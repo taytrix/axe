@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from axe.status import _server_status_from_show
+from datetime import UTC, datetime, timedelta
+
+from axe.status import _server_status_from_show, relative_age
 
 
 def test_active_status() -> None:
@@ -42,3 +44,17 @@ def test_non_numeric_pid_is_none() -> None:
     show = {"MainPID": "not-a-number"}
     s = _server_status_from_show("axe-conan.service", show)
     assert s.main_pid is None
+
+
+def test_relative_age_recent() -> None:
+    five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert "minutes ago" in relative_age(five_min_ago)
+
+
+def test_relative_age_hours() -> None:
+    hours_ago = (datetime.now(UTC) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert "hour" in relative_age(hours_ago)
+
+
+def test_relative_age_malformed_returns_unknown() -> None:
+    assert relative_age("not-a-timestamp") == "unknown"

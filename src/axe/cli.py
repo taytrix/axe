@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -12,6 +13,7 @@ from axe import __version__
 from axe.config import Config, save_config
 from axe.context import load_context
 from axe.errors import AxeError, ExitCode
+from axe.layout import layout_at
 from axe.lifecycle import restart_server
 from axe.logs import find_latest_log, follow_log, tail_lines
 from axe.mod_edit import insert_mod, move_mod, remove_mod
@@ -29,7 +31,8 @@ from axe.output import (
     render_ok,
     status_envelope,
 )
-from axe.status import read_status
+from axe.state import load_state, state_path
+from axe.status import relative_age, status_from_saved
 from axe.steamcmd import require_steamcmd_on_path
 from axe.sync import run_sync
 from axe.systemd import SystemctlVerb, systemctl_show, systemctl_verb
@@ -191,6 +194,7 @@ def install(
     try:
         context = load_context(target_root / "axe.toml")
         outcome = run_sync(context)
+        run_monitor_tick(context)  # populate state.json so `axe status` works
     except AxeError as e:
         render_error(command="install", error=e, opts=opts)
     render_ok(
@@ -202,25 +206,41 @@ def install(
             "log_file": str(outcome.log_file) if outcome.log_file else None,
         },
         opts=opts,
-        human=lambda: print(
-            f"installed at {target_root}"
-            + (f" (log: {outcome.log_file})" if outcome.log_file else "")
-        ),
+        human=lambda: _print_install_complete(target_root, outcome.log_file),
         warnings=outcome.warnings,
     )
+
+
+def _print_install_complete(root: Path, log: Path | None) -> None:
+    print(f"installed at {root}" + (f" (log: {log})" if log else ""))
+    print()
+    print("next steps:")
+    print(f"  cd {root}")
+    print("  axe unit install        # wire systemd (server + monitor timer)")
+    print("  axe mods add top <id>   # declare a mod, then `axe sync` to apply")
+    print("  axe status              # what is true")
 
 
 def _write_starter_toml(target_root: Path, *, command: str, opts: OutputOptions) -> None:
     target_toml = target_root / "axe.toml"
     if target_toml.exists():
-        render_fail(
-            command=command,
-            code=ExitCode.FILESYSTEM,
-            message=(
+        binary = layout_at(target_root).binary
+        if binary.exists():
+            msg = (
+                f"axe.toml already exists at {target_toml}\n"
+                "  install appears complete (server binary found)\n"
+                "  run `axe status` to check, or `axe sync` to reconcile any drift"
+            )
+        else:
+            msg = (
                 f"axe.toml already exists at {target_toml}\n"
                 f"  to complete an interrupted install: cd {target_root} && axe sync\n"
                 f"  to start over:                      rm {target_toml}"
-            ),
+            )
+        render_fail(
+            command=command,
+            code=ExitCode.FILESYSTEM,
+            message=msg,
             opts=opts,
         )
     target_root.mkdir(parents=True, exist_ok=True)
@@ -236,22 +256,34 @@ def _write_starter_toml(target_root: Path, *, command: str, opts: OutputOptions)
 
 @app.command()
 def status(ctx: typer.Context) -> None:
-    """Show what is true."""
+    """Show what is true — reads state.json (offline). Run `axe monitor` to refresh."""
     opts = _opts(ctx)
     try:
         context = load_context(_config_path(ctx))
-        s = read_status(context, with_mods=True)
     except AxeError as e:
         render_error(command="status", error=e, opts=opts)
 
+    saved = load_state(state_path(context.layout.root))
+    if saved is None:
+        render_fail(
+            command="status",
+            code=ExitCode.DISCOVERY,
+            message=(
+                f"no state.json at {state_path(context.layout.root)}\n"
+                "  run `axe monitor` to populate it (or `axe sync` for a full reconcile)"
+            ),
+            opts=opts,
+        )
+    s = status_from_saved(saved, context)
+    as_of = relative_age(saved.checked_at)
     render_ok(
         command="status",
-        data=status_envelope(s),
+        data=status_envelope(s, checked_at=saved.checked_at),
         opts=opts,
-        human=lambda: print_status(s, opts),
+        human=lambda: print_status(s, opts, as_of=as_of),
         warnings=s.warnings,
     )
-    if s.drifted:
+    if saved.drift:
         raise typer.Exit(int(ExitCode.DRIFT))
 
 
@@ -262,6 +294,7 @@ def sync(ctx: typer.Context) -> None:
     try:
         context = load_context(_config_path(ctx))
         outcome = run_sync(context)
+        run_monitor_tick(context)  # refresh state.json so `axe status` matches
     except AxeError as e:
         render_error(command="sync", error=e, opts=opts)
 
@@ -502,25 +535,113 @@ def mods_rm(
     _do_mods_edit(ctx, "mods rm", lambda p: remove_mod(p, mod_id))
 
 
-@app.command()
-def unit(
+unit_app = typer.Typer(
+    help="Systemd unit text + installation.",
+    no_args_is_help=False,
+    invoke_without_command=True,
+)
+app.add_typer(unit_app, name="unit")
+
+
+@unit_app.callback()
+def unit_callback(ctx: typer.Context) -> None:
+    """`axe unit` (no subcommand) prints the server unit text."""
+    if ctx.invoked_subcommand is None:
+        _unit_print(ctx, "server")
+
+
+@unit_app.command("server")
+def unit_server_cmd(ctx: typer.Context) -> None:
+    """Print the server systemd unit text."""
+    _unit_print(ctx, "server")
+
+
+@unit_app.command("monitor")
+def unit_monitor_cmd(ctx: typer.Context) -> None:
+    """Print the monitor service + timer pair."""
+    _unit_print(ctx, "monitor")
+
+
+@unit_app.command("install")
+def unit_install_cmd(
     ctx: typer.Context,
-    target: Annotated[str, typer.Argument(help="server or monitor")] = "server",
+    target: Annotated[
+        str,
+        typer.Argument(help="server | monitor | all"),
+    ] = "all",
 ) -> None:
-    """Print systemd user unit text."""
+    """Write systemd unit files into ~/.config/systemd/user/ and reload."""
     opts = _opts(ctx)
-    if target not in {"server", "monitor"}:
+    if target not in {"server", "monitor", "all"}:
         render_fail(
-            command="unit",
+            command="unit install",
             code=ExitCode.MISUSE,
-            message=f"target must be 'server' or 'monitor'; got {target!r}",
+            message=f"target must be 'server' | 'monitor' | 'all'; got {target!r}",
             opts=opts,
         )
     try:
         context = load_context(_config_path(ctx))
     except AxeError as e:
-        render_error(command=f"unit {target}", error=e, opts=opts)
+        render_error(command="unit install", error=e, opts=opts)
 
+    user_dir = Path.home() / ".config" / "systemd" / "user"
+    user_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    if target in {"server", "all"}:
+        unit_name = context.config.effective_unit()
+        text = render_server_unit(context.config, context.layout)
+        path = user_dir / unit_name
+        path.write_text(text)
+        written.append(path)
+    if target in {"monitor", "all"}:
+        base = context.config.effective_unit().removesuffix(".service")
+        units = render_monitor_units(context.config, context.config_path)
+        svc = user_dir / f"{base}-monitor.service"
+        tmr = user_dir / f"{base}-monitor.timer"
+        svc.write_text(units.service)
+        tmr.write_text(units.timer)
+        written.extend([svc, tmr])
+
+    reload_warning: str | None = None
+    try:
+        subprocess.run(
+            ["systemctl", "--user", "daemon-reload"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError) as e:
+        reload_warning = f"daemon-reload failed: {e}; run manually"
+
+    render_ok(
+        command="unit install",
+        data={"target": target, "written": [str(p) for p in written]},
+        opts=opts,
+        human=lambda: _print_unit_install_done(written, target),
+        warnings=[reload_warning] if reload_warning else None,
+    )
+
+
+def _print_unit_install_done(written: list[Path], target: str) -> None:
+    for p in written:
+        print(f"wrote {p}")
+    if target in {"server", "all"}:
+        print()
+        print("enable + start the server:")
+        print("  systemctl --user enable --now axe-conan")
+    if target in {"monitor", "all"}:
+        print()
+        print("enable the drift-sensor timer:")
+        print("  systemctl --user enable --now axe-conan-monitor.timer")
+
+
+def _unit_print(ctx: typer.Context, target: str) -> None:
+    opts = _opts(ctx)
+    try:
+        context = load_context(_config_path(ctx))
+    except AxeError as e:
+        render_error(command=f"unit {target}", error=e, opts=opts)
     if target == "server":
         text = render_server_unit(context.config, context.layout)
         data: dict[str, object] = {"target": "server", "text": text}
@@ -542,6 +663,16 @@ def _server_lifecycle(ctx: typer.Context, verb: SystemctlVerb, command: str) -> 
         context = load_context(_config_path(ctx))
         result = systemctl_verb(context.config.effective_unit(), verb)
     except AxeError as e:
+        if _looks_like_unit_not_found(e.message):
+            render_fail(
+                command=command,
+                code=ExitCode.DISCOVERY,
+                message=(
+                    f"{e.message}\n"
+                    "  run `axe unit install` to write the unit file, then retry"
+                ),
+                opts=opts,
+            )
         render_error(command=command, error=e, opts=opts)
     render_ok(
         command=command,
@@ -549,6 +680,11 @@ def _server_lifecycle(ctx: typer.Context, verb: SystemctlVerb, command: str) -> 
         opts=opts,
         human=lambda: print(f"{result.verb} {result.unit}: ok"),
     )
+
+
+def _looks_like_unit_not_found(message: str) -> bool:
+    needle = message.lower()
+    return "unit" in needle and ("not found" in needle or "not loaded" in needle)
 
 
 @server_app.command("up")
@@ -571,6 +707,16 @@ def server_restart(ctx: typer.Context) -> None:
         context = load_context(_config_path(ctx))
         outcome = restart_server(context)
     except AxeError as e:
+        if _looks_like_unit_not_found(e.message):
+            render_fail(
+                command="server restart",
+                code=ExitCode.DISCOVERY,
+                message=(
+                    f"{e.message}\n"
+                    "  run `axe unit install` to write the unit file, then retry"
+                ),
+                opts=opts,
+            )
         render_error(command="server restart", error=e, opts=opts)
     render_ok(
         command="server restart",
