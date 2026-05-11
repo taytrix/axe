@@ -56,5 +56,5 @@ root = "{synthetic_install}"
     )
     ctx = load_context(synthetic_install / "axe.toml")
     monkeypatch.setattr("shutil.which", lambda _name: None)
-    with pytest.raises(AxeError, match="steamcmd binary not found"):
+    with pytest.raises(AxeError, match="steamcmd not found in PATH"):
         run_validate(ctx)

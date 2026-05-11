@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from axe.context import Context
-from axe.errors import AxeError
 from axe.layout import SERVER_APPID
 from axe.steamcmd import (
     AppUpdate,
     SpawnLike,
     SteamcmdRequest,
     reserve_steamcmd_log,
+    resolve_steamcmd,
     run_steamcmd,
 )
 
@@ -33,18 +33,10 @@ def run_validate(
     steamcmd_binary: str | None = None,
 ) -> ValidateOutcome:
     """Force a verify-and-repair pass over the dedicated server install."""
-    binary = (
-        steamcmd_binary
-        or ctx.config.steamcmd.binary
-        or shutil.which("steamcmd")
-    )
-    if not binary:
-        raise AxeError(
-            "config",
-            "steamcmd binary not found; set [steamcmd].binary in axe.toml or install steamcmd",
-        )
+    binary = steamcmd_binary or resolve_steamcmd(ctx.config.steamcmd.binary)
 
     out_log = log_file or reserve_steamcmd_log(ctx.layout.root, "validate")
+    print(f"running steamcmd validate (log: {out_log})", file=sys.stderr, flush=True)
     outcome = run_steamcmd(
         SteamcmdRequest(
             binary=binary,
@@ -53,6 +45,7 @@ def run_validate(
         ),
         spawn=spawn,
         log_file=out_log,
+        stream=True,
     )
     warnings: list[str] = []
     if outcome.exit != 0:

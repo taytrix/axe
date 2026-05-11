@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from dataclasses import dataclass
 
 from axe.context import Context
@@ -81,13 +82,21 @@ def _read_latest_buildid(
     if not binary:
         warnings.append("steamcmd binary not found; latest build unknown")
         return None
+    # Narrate the slow call so `axe status` doesn't feel like a hang. Skip when
+    # tests stub the spawn (output would clutter capture).
+    if spawn is None:
+        print(
+            "fetching latest build via steamcmd (this can take 10-30s) ...",
+            file=sys.stderr,
+            flush=True,
+        )
     req = SteamcmdRequest(
         binary=binary,
         force_install_dir=str(ctx.layout.root),
         actions=[AppInfoPrint(appid=SERVER_APPID)],
     )
     try:
-        outcome = run_steamcmd(req, spawn=spawn)
+        outcome = run_steamcmd(req, spawn=spawn, timeout=60)
     except AxeError as e:
         warnings.append(f"steamcmd app_info_print: {e.message}")
         return None

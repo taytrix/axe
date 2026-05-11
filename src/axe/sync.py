@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import shutil
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +21,7 @@ from axe.steamcmd import (
     SteamcmdRequest,
     WorkshopDownloadItem,
     reserve_steamcmd_log,
+    resolve_steamcmd,
     run_steamcmd,
 )
 from axe.workshop import FetchLike
@@ -49,6 +50,8 @@ def run_sync(
     """Reconcile any drift: mods + base build. Single steamcmd invocation when work needed."""
     declared = list(ctx.config.mods.ids)
     warnings: list[str] = []
+
+    binary = steamcmd_binary or resolve_steamcmd(ctx.config.steamcmd.binary)
 
     mods_result = run_mods_check(ctx, fetch=fetch)
     warnings.extend(mods_result.warnings)
@@ -96,18 +99,8 @@ def run_sync(
         _fire_after_sync(ctx, sync_env, outcome, hook_runner, warnings)
         return outcome
 
-    binary = (
-        steamcmd_binary
-        or ctx.config.steamcmd.binary
-        or shutil.which("steamcmd")
-    )
-    if not binary:
-        raise AxeError(
-            "config",
-            "steamcmd binary not found; set [steamcmd].binary in axe.toml or install steamcmd",
-        )
-
     out_log = log_file or reserve_steamcmd_log(ctx.layout.root, "sync")
+    print(f"running steamcmd sync (log: {out_log})", file=sys.stderr, flush=True)
     outcome_steamcmd = run_steamcmd(
         SteamcmdRequest(
             binary=binary,
@@ -116,6 +109,7 @@ def run_sync(
         ),
         spawn=spawn,
         log_file=out_log,
+        stream=True,
     )
     if outcome_steamcmd.exit != 0:
         tail = " | ".join(outcome_steamcmd.stderr.strip().splitlines()[-3:])

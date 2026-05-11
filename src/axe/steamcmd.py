@@ -1,8 +1,10 @@
-"""SteamCMD subprocess wrapper: typed actions, argv builder, log capture."""
+"""SteamCMD subprocess wrapper: typed actions, argv builder, streaming + log capture."""
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -45,7 +47,6 @@ class SteamcmdRequest:
     binary: str
     force_install_dir: str
     actions: Sequence[SteamcmdAction]
-    # v0.1 only supports anonymous login; user/password lands when an action earns it.
 
 
 @dataclass(frozen=True)
@@ -58,8 +59,59 @@ class SteamcmdOutcome:
 SpawnLike = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
 
 
+_STEAMCMD_INSTALL_HINT = (
+    "steamcmd not found in PATH.\n"
+    "  install on cachyos/arch:  paru -S steamcmd\n"
+    "  install on debian/ubuntu: sudo apt install steamcmd\n"
+    "  other distros:            https://developer.valvesoftware.com/wiki/SteamCMD"
+)
+
+
+def resolve_steamcmd(config_binary: str | None) -> str:
+    """Prefer the configured binary; fall back to PATH. Raise AxeError with install hint."""
+    binary = config_binary or shutil.which("steamcmd")
+    if not binary:
+        raise AxeError("config", _STEAMCMD_INSTALL_HINT)
+    return binary
+
+
+def require_steamcmd_on_path() -> str:
+    """Same as resolve_steamcmd(None) — used by `axe install` before any toml exists."""
+    return resolve_steamcmd(None)
+
+
 def _default_spawn(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(list(argv), capture_output=True, text=True, check=False)
+
+
+def _streaming_spawn(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    """Tee subprocess output to stderr while capturing for return/log.
+
+    stderr is merged into stdout in the pipe to preserve interleaving order —
+    steamcmd writes progress and errors freely across both streams. We then
+    emit the merged stream to OUR stderr so axe's stdout stays reserved for
+    the JSON envelope (or the human renderer).
+    """
+    proc = subprocess.Popen(
+        list(argv),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    captured: list[str] = []
+    if proc.stdout is not None:
+        for line in proc.stdout:
+            sys.stderr.write(line)
+            sys.stderr.flush()
+            captured.append(line)
+    proc.wait()
+    return subprocess.CompletedProcess(
+        args=list(argv),
+        returncode=proc.returncode,
+        stdout="".join(captured),
+        stderr="",
+    )
 
 
 def build_argv(req: SteamcmdRequest) -> list[str]:
@@ -95,14 +147,33 @@ def run_steamcmd(
     *,
     spawn: SpawnLike | None = None,
     log_file: Path | None = None,
+    stream: bool = False,
+    timeout: float | None = None,
 ) -> SteamcmdOutcome:
-    """Run steamcmd. Throws AxeError(lifecycle) on spawn failure, NOT on non-zero exit."""
+    """Run steamcmd. `stream=True` tees stdout to the user; `timeout` aborts in seconds."""
     argv = build_argv(req)
-    impl = spawn or _default_spawn
     try:
-        completed = impl(argv)
+        if spawn is not None:
+            completed = spawn(argv)
+        elif timeout is not None:
+            completed = subprocess.run(
+                list(argv),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+        elif stream:
+            completed = _streaming_spawn(argv)
+        else:
+            completed = _default_spawn(argv)
     except (FileNotFoundError, OSError) as e:
         raise AxeError("lifecycle", f"spawn steamcmd: {e}") from e
+    except subprocess.TimeoutExpired as e:
+        raise AxeError(
+            "lifecycle",
+            f"steamcmd timed out after {timeout}s (argv: {' '.join(argv)})",
+        ) from e
 
     outcome = SteamcmdOutcome(
         exit=completed.returncode,

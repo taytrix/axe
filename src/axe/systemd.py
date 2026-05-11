@@ -35,12 +35,16 @@ def systemctl_show(unit: str) -> dict[str, str]:
     """Run `systemctl --user show <unit>` and return parsed key=value lines."""
     if shutil.which("systemctl") is None:
         raise AxeError("lifecycle", "systemctl not found on PATH")
-    proc = subprocess.run(
-        ["systemctl", "--user", "show", unit],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            ["systemctl", "--user", "show", unit],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise AxeError("lifecycle", f"systemctl show {unit} timed out after 10s") from e
     if proc.returncode != 0:
         raise AxeError(
             "lifecycle",

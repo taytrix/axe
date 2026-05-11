@@ -13,8 +13,11 @@ axe            owns the Conan / Workshop / Steam understanding layer
 ## Install
 
 ```
-uv tool install --from git+https://github.com/taytrix/axe@python-v0.3.1 axe
+uv tool install --from git+https://github.com/taytrix/axe@python-v0.3.2 axe
 ```
+
+After this first install, `axe update` carries you forward — it queries
+GitHub for the latest python-v* tag and runs `uv tool install --force`.
 
 ## Quickstart
 

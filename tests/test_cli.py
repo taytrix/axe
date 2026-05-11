@@ -84,6 +84,7 @@ def test_install_writes_toml_and_runs_sync(tmp_path: Path) -> None:
 
     monkeypatch = pytest.MonkeyPatch()
     try:
+        monkeypatch.setattr(cli, "require_steamcmd_on_path", lambda: "/usr/bin/steamcmd")
         monkeypatch.setattr(sync, "run_sync", fake_sync)
         monkeypatch.setattr(cli, "run_sync", fake_sync)
         target = tmp_path / "fresh-conan"
@@ -98,6 +99,28 @@ def test_install_writes_toml_and_runs_sync(tmp_path: Path) -> None:
 def test_install_refuses_existing_toml(synthetic_install_with_toml: Path) -> None:
     result = runner.invoke(app, ["install", str(synthetic_install_with_toml)])
     assert result.exit_code == int(ExitCode.FILESYSTEM)
+
+
+def test_install_preflight_steamcmd_missing_does_not_write_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When steamcmd is absent, `axe install` fails BEFORE touching disk."""
+    from axe import cli
+    from axe.errors import AxeError as AE
+
+    def fail() -> str:
+        raise AE("config", "steamcmd not found in PATH.\n  install: ...")
+
+    monkeypatch.setattr(cli, "require_steamcmd_on_path", fail)
+    target = tmp_path / "should-not-exist"
+    result = runner.invoke(app, ["install", str(target)])
+    assert result.exit_code == int(ExitCode.CONFIG)
+    assert not target.exists()  # NO partial state
+
+
+def test_install_toml_exists_error_points_to_sync(synthetic_install_with_toml: Path) -> None:
+    result = runner.invoke(app, ["install", str(synthetic_install_with_toml)])
+    assert "axe sync" in result.stderr or "axe sync" in (result.stdout or "")
 
 
 def _stub_systemctl(monkeypatch: pytest.MonkeyPatch, show: dict[str, str]) -> None:

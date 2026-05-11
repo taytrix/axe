@@ -30,9 +30,11 @@ from axe.output import (
     status_envelope,
 )
 from axe.status import read_status
+from axe.steamcmd import require_steamcmd_on_path
 from axe.sync import run_sync
 from axe.systemd import SystemctlVerb, systemctl_show, systemctl_verb
 from axe.units import render_monitor_units, render_server_unit
+from axe.update import run_update
 from axe.validate import run_validate
 
 app = typer.Typer(
@@ -112,6 +114,45 @@ def version(ctx: typer.Context) -> None:
 
 
 @app.command()
+def update(
+    ctx: typer.Context,
+    tag: Annotated[
+        str | None,
+        typer.Argument(help="Tag to install (default: latest python-v* from GitHub)"),
+    ] = None,
+) -> None:
+    """Upgrade axe to the latest release (or to TAG). Assumes uv-tool install."""
+    opts = _opts(ctx)
+    try:
+        outcome = run_update(target_tag=tag)
+    except AxeError as e:
+        render_error(command="update", error=e, opts=opts)
+    if not outcome.upgraded:
+        render_ok(
+            command="update",
+            data={
+                "previous": outcome.previous,
+                "target": outcome.target,
+                "upgraded": False,
+            },
+            opts=opts,
+            human=lambda: print(f"already at {outcome.target}; nothing to do"),
+        )
+        return
+    render_ok(
+        command="update",
+        data={
+            "previous": outcome.previous,
+            "target": outcome.target,
+            "upgraded": True,
+            "command": outcome.command,
+        },
+        opts=opts,
+        human=lambda: print(f"upgraded {outcome.previous} → {outcome.target}"),
+    )
+
+
+@app.command()
 def init(
     ctx: typer.Context,
     path: Annotated[Path | None, typer.Argument(help="Server root (default: cwd)")] = None,
@@ -142,6 +183,10 @@ def install(
     """Cold-start: write axe.toml at PATH, then run steamcmd to install the server."""
     opts = _opts(ctx)
     target_root = (path or Path.cwd()).resolve()
+    try:
+        require_steamcmd_on_path()  # pre-flight; nothing touches disk if this fails
+    except AxeError as e:
+        render_error(command="install", error=e, opts=opts)
     _write_starter_toml(target_root, command="install", opts=opts)
     try:
         context = load_context(target_root / "axe.toml")
@@ -171,7 +216,11 @@ def _write_starter_toml(target_root: Path, *, command: str, opts: OutputOptions)
         render_fail(
             command=command,
             code=ExitCode.FILESYSTEM,
-            message=f"axe.toml already exists at {target_toml}; refusing to overwrite",
+            message=(
+                f"axe.toml already exists at {target_toml}\n"
+                f"  to complete an interrupted install: cd {target_root} && axe sync\n"
+                f"  to start over:                      rm {target_toml}"
+            ),
             opts=opts,
         )
     target_root.mkdir(parents=True, exist_ok=True)
