@@ -12,7 +12,6 @@ from axe import __version__
 from axe.config import Config, save_config
 from axe.context import load_context
 from axe.errors import AxeError, ExitCode
-from axe.layout import layout_at
 from axe.lifecycle import restart_server
 from axe.logs import find_latest_log, follow_log, tail_lines
 from axe.mod_edit import insert_mod, move_mod, remove_mod
@@ -34,6 +33,7 @@ from axe.status import read_status
 from axe.sync import run_sync
 from axe.systemd import SystemctlVerb, systemctl_show, systemctl_verb
 from axe.units import render_monitor_units, render_server_unit
+from axe.validate import run_validate
 
 app = typer.Typer(
     name="axe",
@@ -116,28 +116,65 @@ def init(
     ctx: typer.Context,
     path: Annotated[Path | None, typer.Argument(help="Server root (default: cwd)")] = None,
 ) -> None:
-    """Bootstrap a starter axe.toml at PATH."""
+    """Write a starter axe.toml at PATH. Run `axe sync` afterwards to install the server."""
     opts = _opts(ctx)
     target_root = (path or Path.cwd()).resolve()
-    target_toml = target_root / "axe.toml"
+    _write_starter_toml(target_root, command="init", opts=opts)
+    render_ok(
+        command="init",
+        data={
+            "config_path": str(target_root / "axe.toml"),
+            "root": str(target_root),
+            "server_id": target_root.name or "conan",
+        },
+        opts=opts,
+        human=lambda: print(
+            f"wrote {target_root / 'axe.toml'} — run 'axe sync' to install the server"
+        ),
+    )
 
+
+@app.command()
+def install(
+    ctx: typer.Context,
+    path: Annotated[Path | None, typer.Argument(help="Server root (default: cwd)")] = None,
+) -> None:
+    """Cold-start: write axe.toml at PATH, then run steamcmd to install the server."""
+    opts = _opts(ctx)
+    target_root = (path or Path.cwd()).resolve()
+    _write_starter_toml(target_root, command="install", opts=opts)
+    try:
+        context = load_context(target_root / "axe.toml")
+        outcome = run_sync(context)
+    except AxeError as e:
+        render_error(command="install", error=e, opts=opts)
+    render_ok(
+        command="install",
+        data={
+            "config_path": str(target_root / "axe.toml"),
+            "root": str(target_root),
+            "base_build_updated": outcome.base_build_updated,
+            "log_file": str(outcome.log_file) if outcome.log_file else None,
+        },
+        opts=opts,
+        human=lambda: print(
+            f"installed at {target_root}"
+            + (f" (log: {outcome.log_file})" if outcome.log_file else "")
+        ),
+        warnings=outcome.warnings,
+    )
+
+
+def _write_starter_toml(target_root: Path, *, command: str, opts: OutputOptions) -> None:
+    target_toml = target_root / "axe.toml"
     if target_toml.exists():
         render_fail(
-            command="init",
+            command=command,
             code=ExitCode.FILESYSTEM,
             message=f"axe.toml already exists at {target_toml}; refusing to overwrite",
             opts=opts,
         )
-
-    layout = layout_at(target_root)
-    if not layout.binary.exists():
-        render_fail(
-            command="init",
-            code=ExitCode.DISCOVERY,
-            message=f"no Conan binary at {layout.binary}; {target_root} is not a Conan install",
-            opts=opts,
-        )
-
+    target_root.mkdir(parents=True, exist_ok=True)
     server_id = target_root.name or "conan"
     config = Config.model_validate(
         {"schema": 1, "server": {"id": server_id, "root": str(target_root)}}
@@ -145,18 +182,7 @@ def init(
     try:
         save_config(config, target_toml)
     except AxeError as e:
-        render_error(command="init", error=e, opts=opts)
-
-    render_ok(
-        command="init",
-        data={
-            "config_path": str(target_toml),
-            "root": str(target_root),
-            "server_id": server_id,
-        },
-        opts=opts,
-        human=lambda: print(f"wrote {target_toml}"),
-    )
+        render_error(command=command, error=e, opts=opts)
 
 
 @app.command()
@@ -206,6 +232,30 @@ def sync(ctx: typer.Context) -> None:
     )
     if outcome.missing:
         raise typer.Exit(int(ExitCode.DRIFT))
+
+
+@app.command()
+def validate(ctx: typer.Context) -> None:
+    """Force `steamcmd +app_update 443030 validate` to re-verify the install."""
+    opts = _opts(ctx)
+    try:
+        context = load_context(_config_path(ctx))
+        outcome = run_validate(context)
+    except AxeError as e:
+        render_error(command="validate", error=e, opts=opts)
+    render_ok(
+        command="validate",
+        data={
+            "appid": outcome.appid,
+            "log_file": str(outcome.log_file) if outcome.log_file else None,
+        },
+        opts=opts,
+        human=lambda: print(
+            f"validated app {outcome.appid}"
+            + (f" (log: {outcome.log_file})" if outcome.log_file else "")
+        ),
+        warnings=outcome.warnings,
+    )
 
 
 @app.command()

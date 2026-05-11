@@ -13,37 +13,48 @@ axe            owns the Conan / Workshop / Steam understanding layer
 ## Install
 
 ```
-uv tool install --from git+https://github.com/taytrix/axe@python-v0.3.0 axe
+uv tool install --from git+https://github.com/taytrix/axe@python-v0.3.1 axe
 ```
 
 ## Quickstart
 
 ```
-# 1. probe a Conan install, write axe.toml
-axe init ~/conan
+# 1. cold-start: writes axe.toml AND runs steamcmd to install the dedicated server
+axe install ~/conan
+cd ~/conan
 
-# 2. install the systemd user units (server + drift-sensor timer)
-axe unit         > ~/.config/systemd/user/axe-conan.service
-axe unit monitor                                       # prints .service + .timer pair
-# split the pair and tee each half into ~/.config/systemd/user/
-
-systemctl --user daemon-reload
-systemctl --user enable --now axe-conan
-systemctl --user enable --now axe-conan-monitor.timer
-loginctl enable-linger $USER
-
-# 3. see what is true
-axe status
-
-# 4. declare some mods (stack ops; ordinals are 1-indexed)
+# 2. declare some mods (stack ops; ordinals are 1-indexed)
 axe mods add top    880454836         # prepend
 axe mods add bottom 1159180273        # append
 axe mods                              # list with freshness state
 axe mods move above 1 1159180273      # reorder
 
-# 5. reconcile any drift (mods + base build) in one cycle
+# 3. reconcile any drift (mods + base build) in one cycle
 axe sync
+
+# 4. see what is true
+axe status
+
+# 5. (later) force a steam integrity-check pass
+axe validate
+
+# 6. (optional) wire systemd so the server auto-starts and drift detection runs
+axe unit         > ~/.config/systemd/user/axe-conan.service
+axe unit monitor                                       # prints .service + .timer pair
+# split the pair and tee each half into ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now axe-conan
+systemctl --user enable --now axe-conan-monitor.timer
+loginctl enable-linger $USER
 ```
+
+axe finds `axe.toml` by walking up from the current directory (git-style), so
+after the initial `cd ~/conan` you never type `--config`. Pin a specific
+install across shells with `export AXE_ROOT=~/conan`.
+
+If you want metadata-only (write `axe.toml` but don't run steamcmd yet),
+use `axe init ~/conan` and `axe sync` afterwards. `axe install` is the
+sugar for both.
 
 ## `axe mods` verbs
 

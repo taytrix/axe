@@ -49,9 +49,55 @@ def test_init_refuses_overwrite(synthetic_install_with_toml: Path) -> None:
     assert result.exit_code == int(ExitCode.FILESYSTEM)
 
 
-def test_init_rejects_non_conan_install(tmp_path: Path) -> None:
-    result = runner.invoke(app, ["init", str(tmp_path)])
-    assert result.exit_code == int(ExitCode.DISCOVERY)
+def test_init_works_on_empty_directory(tmp_path: Path) -> None:
+    target = tmp_path / "fresh-root"
+    result = runner.invoke(app, ["init", str(target)])
+    assert result.exit_code == 0
+    assert (target / "axe.toml").exists()
+
+
+def test_init_creates_missing_directory(tmp_path: Path) -> None:
+    target = tmp_path / "does" / "not" / "exist"
+    result = runner.invoke(app, ["init", str(target)])
+    assert result.exit_code == 0
+    assert (target / "axe.toml").exists()
+
+
+def test_install_writes_toml_and_runs_sync(tmp_path: Path) -> None:
+    """`axe install <path>` mkdir-p's the dir, writes the toml, and runs sync."""
+    from axe import cli, sync
+    from axe.sync import SyncOutcome
+
+    captured: dict[str, Path | None] = {"config_path": None}
+
+    def fake_sync(context, **_kwargs):  # noqa: ANN001 — typer test stub
+        captured["config_path"] = context.config_path
+        return SyncOutcome(
+            downloaded=[],
+            missing=[],
+            modlist_path=str(context.layout.modlist_txt),
+            modlist_changed=False,
+            log_file=None,
+            base_build_updated=True,
+            warnings=[],
+        )
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(sync, "run_sync", fake_sync)
+        monkeypatch.setattr(cli, "run_sync", fake_sync)
+        target = tmp_path / "fresh-conan"
+        result = runner.invoke(app, ["install", str(target)])
+        assert result.exit_code == 0
+        assert (target / "axe.toml").exists()
+        assert captured["config_path"] == target / "axe.toml"
+    finally:
+        monkeypatch.undo()
+
+
+def test_install_refuses_existing_toml(synthetic_install_with_toml: Path) -> None:
+    result = runner.invoke(app, ["install", str(synthetic_install_with_toml)])
+    assert result.exit_code == int(ExitCode.FILESYSTEM)
 
 
 def _stub_systemctl(monkeypatch: pytest.MonkeyPatch, show: dict[str, str]) -> None:

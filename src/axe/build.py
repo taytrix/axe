@@ -21,22 +21,33 @@ from axe.vdf import parse_vdf
 class BuildStatus:
     installed_buildid: str | None
     latest_buildid: str | None
+    binary_present: bool
     drifted: bool
     warnings: list[str]
 
 
 def empty_build_status() -> BuildStatus:
-    return BuildStatus(installed_buildid=None, latest_buildid=None, drifted=False, warnings=[])
+    return BuildStatus(
+        installed_buildid=None,
+        latest_buildid=None,
+        binary_present=False,
+        drifted=False,
+        warnings=[],
+    )
 
 
 def read_build_status(ctx: Context, *, spawn: SpawnLike | None = None) -> BuildStatus:
     warnings: list[str] = []
+    binary_present = ctx.layout.binary.exists()
     installed = _read_installed_buildid(ctx, warnings)
     latest = _read_latest_buildid(ctx, warnings, spawn=spawn)
-    drifted = installed is not None and latest is not None and installed != latest
+    drifted = (not binary_present) or (
+        installed is not None and latest is not None and installed != latest
+    )
     return BuildStatus(
         installed_buildid=installed,
         latest_buildid=latest,
+        binary_present=binary_present,
         drifted=drifted,
         warnings=warnings,
     )

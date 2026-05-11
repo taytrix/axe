@@ -58,6 +58,7 @@ def _stub_build_status(monkeypatch: pytest.MonkeyPatch, *, drifted: bool = False
         return BuildStatus(
             installed_buildid="100" if drifted else "200",
             latest_buildid="200",
+            binary_present=True,
             drifted=drifted,
             warnings=[],
         )

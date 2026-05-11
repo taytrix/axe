@@ -148,6 +148,7 @@ def status_envelope(s: Status) -> dict[str, object]:
         "build": {
             "installed_buildid": s.build.installed_buildid,
             "latest_buildid": s.build.latest_buildid,
+            "binary_present": s.build.binary_present,
             "drifted": s.build.drifted,
         },
         "settings": {
@@ -183,6 +184,8 @@ def print_status(s: Status, opts: OutputOptions) -> None:
         console.print(f"  max_players  {s.settings.max_players}")
     console.print()
     console.print("[dim]build[/dim]")
+    if not s.build.binary_present:
+        console.print("  binary       [red]missing[/red]")
     console.print(f"  installed    {s.build.installed_buildid or '-'}")
     console.print(f"  latest       {s.build.latest_buildid or '-'}")
     build_label = "[red]drifted[/red]" if s.build.drifted else "[green]current[/green]"

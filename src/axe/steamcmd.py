@@ -12,7 +12,7 @@ from typing import Literal
 from axe.errors import AxeError
 from axe.io import atomic_write
 
-SteamcmdVerb = Literal["install", "update", "verify", "sync"]
+SteamcmdVerb = Literal["install", "update", "verify", "sync", "validate"]
 
 
 @dataclass(frozen=True)

@@ -128,5 +128,54 @@ def test_read_build_status_steamcmd_failure(synthetic_install: Path) -> None:
 
 
 def test_empty_build_status() -> None:
-    s = BuildStatus(installed_buildid=None, latest_buildid=None, drifted=False, warnings=[])
+    s = BuildStatus(
+        installed_buildid=None,
+        latest_buildid=None,
+        binary_present=False,
+        drifted=False,
+        warnings=[],
+    )
     assert s.drifted is False
+
+
+def test_binary_missing_is_drift(tmp_path: Path) -> None:
+    """A path with no Conan binary reads as drifted (cold-start triggers sync's app_update)."""
+    root = tmp_path / "empty"
+    root.mkdir()
+    (root / "axe.toml").write_text(
+        f"""\
+schema = 1
+
+[server]
+id = "conan"
+root = "{root}"
+"""
+    )
+    ctx = load_context(root / "axe.toml")
+    status = read_build_status(ctx, spawn=_stub_spawn_missing)
+    assert status.binary_present is False
+    assert status.drifted is True
+
+
+def test_binary_present_is_not_drift_when_buildids_align(synthetic_install: Path) -> None:
+    root = synthetic_install
+    (root / "steamapps").mkdir(parents=True, exist_ok=True)
+    (root / "steamapps" / "appmanifest_443030.acf").write_text(
+        APPMANIFEST.replace("17234956", "17234957")
+    )
+    (root / "axe.toml").write_text(
+        f"""\
+schema = 1
+
+[server]
+id = "conan"
+root = "{root}"
+
+[steamcmd]
+binary = "/usr/bin/steamcmd"
+"""
+    )
+    ctx = load_context(root / "axe.toml")
+    status = read_build_status(ctx, spawn=_stub_spawn_app_info)
+    assert status.binary_present is True
+    assert status.drifted is False
