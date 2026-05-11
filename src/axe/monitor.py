@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from axe import __version__
 from axe.context import Context
-from axe.hooks import HookRunner, run_hook
+from axe.hooks import HookRunner, SyncEnvContext, build_hook_env, run_hook
 from axe.state import SavedState, load_state, save_state, state_path
 from axe.status import read_status
 
@@ -71,17 +71,16 @@ def run_monitor_tick(
             hook_fired = True
             hook_warning = run_hook(
                 hook_cmd,
-                env={
-                    "AXE_ROOT": str(ctx.layout.root),
-                    "AXE_STATE": str(path),
-                    "AXE_EVENT": "drift",
-                    "AXE_MODS_STALE": str(state.mods.stale),
-                    "AXE_MODS_MISSING_LOCAL": str(state.mods.missing_local),
-                    "AXE_MODS_MISSING_REMOTE": str(state.mods.missing_remote),
-                    "AXE_BUILD_DRIFTED": "1" if snapshot.build.drifted else "0",
-                    "AXE_BUILD_INSTALLED": snapshot.build.installed_buildid or "",
-                    "AXE_BUILD_LATEST": snapshot.build.latest_buildid or "",
-                },
+                build_hook_env(
+                    ctx,
+                    "drift",
+                    sync=SyncEnvContext(
+                        mods_stale=snapshot.mods.stale,
+                        mods_missing_local=snapshot.mods.missing_local,
+                        mods_missing_remote=snapshot.mods.missing_remote,
+                        build=snapshot.build,
+                    ),
+                ),
                 runner=hook_runner,
                 strict=False,
             )

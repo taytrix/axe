@@ -7,13 +7,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from axe.build import BuildStatus, read_build_status
+from axe.build import read_build_status
 from axe.context import Context
 from axe.errors import AxeError
-from axe.hooks import HookRunner, run_hook
+from axe.hooks import HookRunner, SyncEnvContext, build_hook_env, run_hook
 from axe.io import atomic_write
 from axe.layout import SERVER_APPID, WORKSHOP_APPID, Layout
-from axe.mods import FreshnessReport, run_mods_check
+from axe.mods import run_mods_check
 from axe.steamcmd import (
     AppUpdate,
     SpawnLike,
@@ -55,10 +55,16 @@ def run_sync(
     build = read_build_status(ctx, spawn=spawn)
     warnings.extend(build.warnings)
 
+    sync_env = SyncEnvContext(
+        mods_stale=mods_result.report.stale,
+        mods_missing_local=mods_result.report.missing_local,
+        mods_missing_remote=mods_result.report.missing_remote,
+        build=build,
+    )
     # before_sync hook (strict-capable; raises AxeError('hook') on strict failure)
     pre_warn = run_hook(
         ctx.config.hooks.before_sync,
-        _sync_env(ctx, mods_result.report, build, "before_sync"),
+        build_hook_env(ctx, "before_sync", sync=sync_env),
         runner=hook_runner,
         strict=ctx.config.hooks.strict.before_sync,
     )
@@ -87,7 +93,7 @@ def run_sync(
             base_build_updated=False,
             warnings=warnings,
         )
-        _fire_after_sync(ctx, mods_result.report, build, outcome, hook_runner, warnings)
+        _fire_after_sync(ctx, sync_env, outcome, hook_runner, warnings)
         return outcome
 
     binary = (
@@ -132,52 +138,32 @@ def run_sync(
         base_build_updated=build.drifted and outcome_steamcmd.exit == 0,
         warnings=warnings,
     )
-    _fire_after_sync(ctx, mods_result.report, build, outcome, hook_runner, warnings)
+    _fire_after_sync(ctx, sync_env, outcome, hook_runner, warnings)
     return outcome
 
 
 def _fire_after_sync(
     ctx: Context,
-    report: FreshnessReport,
-    build: BuildStatus,
+    sync_env: SyncEnvContext,
     outcome: SyncOutcome,
     runner: HookRunner | None,
     warnings: list[str],
 ) -> None:
+    after_env = SyncEnvContext(
+        mods_stale=sync_env.mods_stale,
+        mods_missing_local=sync_env.mods_missing_local,
+        mods_missing_remote=sync_env.mods_missing_remote,
+        build=sync_env.build,
+        outcome=outcome,
+    )
     warn = run_hook(
         ctx.config.hooks.after_sync,
-        _sync_env(ctx, report, build, "after_sync", outcome=outcome),
+        build_hook_env(ctx, "after_sync", sync=after_env),
         runner=runner,
         strict=False,
     )
     if warn:
         warnings.append(warn)
-
-
-def _sync_env(
-    ctx: Context,
-    report: FreshnessReport,
-    build: BuildStatus,
-    event: str,
-    *,
-    outcome: SyncOutcome | None = None,
-) -> dict[str, str]:
-    env: dict[str, str] = {
-        "AXE_ROOT": str(ctx.layout.root),
-        "AXE_STATE": str(ctx.layout.root / ".axe" / "state.json"),
-        "AXE_EVENT": event,
-        "AXE_MODS_STALE": str(report.stale),
-        "AXE_MODS_MISSING_LOCAL": str(report.missing_local),
-        "AXE_MODS_MISSING_REMOTE": str(report.missing_remote),
-        "AXE_BUILD_DRIFTED": "1" if build.drifted else "0",
-        "AXE_BUILD_INSTALLED": build.installed_buildid or "",
-        "AXE_BUILD_LATEST": build.latest_buildid or "",
-    }
-    if outcome is not None:
-        env["AXE_SYNC_DOWNLOADED"] = str(len(outcome.downloaded))
-        env["AXE_SYNC_MISSING"] = str(len(outcome.missing))
-        env["AXE_SYNC_MODLIST_CHANGED"] = "1" if outcome.modlist_changed else "0"
-    return env
 
 
 @dataclass(frozen=True)
