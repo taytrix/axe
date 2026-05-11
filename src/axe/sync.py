@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,11 +17,9 @@ from axe.steamcmd import (
     AppUpdate,
     SpawnLike,
     SteamcmdAction,
-    SteamcmdRequest,
     WorkshopDownloadItem,
-    reserve_steamcmd_log,
     resolve_steamcmd,
-    run_steamcmd,
+    run_steamcmd_streaming,
 )
 from axe.workshop import FetchLike
 
@@ -99,26 +96,10 @@ def run_sync(
         _fire_after_sync(ctx, sync_env, outcome, hook_runner, warnings)
         return outcome
 
-    out_log = log_file or reserve_steamcmd_log(ctx.layout.root, "sync")
-    if sys.stderr.isatty():
-        print(f"running steamcmd sync (log: {out_log})", file=sys.stderr, flush=True)
-    outcome_steamcmd = run_steamcmd(
-        SteamcmdRequest(
-            binary=binary,
-            force_install_dir=str(ctx.layout.root),
-            actions=actions,
-        ),
-        spawn=spawn,
-        log_file=out_log,
-        stream=True,
+    outcome_steamcmd, out_log, sc_warnings = run_steamcmd_streaming(
+        binary, ctx.layout.root, "sync", actions, spawn=spawn, log_file=log_file,
     )
-    if outcome_steamcmd.exit != 0:
-        tail = " | ".join(outcome_steamcmd.stderr.strip().splitlines()[-3:])
-        warnings.append(
-            f"steamcmd exited {outcome_steamcmd.exit}"
-            + (f"; tail: {tail}" if tail else "")
-            + f"; log: {out_log}"
-        )
+    warnings.extend(sc_warnings)
 
     ml = _reconcile_modlist(ctx.layout, declared)
     still_missing = set(ml.missing)
@@ -206,7 +187,3 @@ def _scan_paks(workshop_content: Path, wsid: int) -> list[Path]:
     except OSError as e:
         raise AxeError("filesystem", f"reading {directory}: {e}") from e
     return [p for p in entries if p.name.lower().endswith(".pak")]
-
-
-# Backward-compat alias: 0.1 callers used `sync_modlist`.
-sync_modlist = run_sync

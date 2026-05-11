@@ -195,6 +195,42 @@ def reserve_steamcmd_log(root: Path, verb: SteamcmdVerb) -> Path:
     return state_dir / f"steamcmd-{verb}-{stamp}.log"
 
 
+def run_steamcmd_streaming(
+    binary: str,
+    root: Path,
+    verb: SteamcmdVerb,
+    actions: Sequence[SteamcmdAction],
+    *,
+    spawn: SpawnLike | None = None,
+    log_file: Path | None = None,
+) -> tuple[SteamcmdOutcome, Path, list[str]]:
+    """Streaming steamcmd invocation with log capture + TTY narration.
+
+    Used by `sync` and `validate` — anything that wants live progress visible
+    to the operator. Returns (outcome, log_path, warnings). The warnings list
+    is empty on exit=0; otherwise it contains a single message with the
+    stderr tail and log path.
+    """
+    out_log = log_file or reserve_steamcmd_log(root, verb)
+    if sys.stderr.isatty():
+        print(f"running steamcmd {verb} (log: {out_log})", file=sys.stderr, flush=True)
+    outcome = run_steamcmd(
+        SteamcmdRequest(binary=binary, force_install_dir=str(root), actions=actions),
+        spawn=spawn,
+        log_file=out_log,
+        stream=True,
+    )
+    warnings: list[str] = []
+    if outcome.exit != 0:
+        tail = " | ".join(outcome.stderr.strip().splitlines()[-3:])
+        warnings.append(
+            f"steamcmd exited {outcome.exit}"
+            + (f"; tail: {tail}" if tail else "")
+            + f"; log: {out_log}"
+        )
+    return outcome, out_log, warnings
+
+
 def _format_log(argv: Sequence[str], outcome: SteamcmdOutcome) -> str:
     return (
         f"# argv: {' '.join(argv)}\n"

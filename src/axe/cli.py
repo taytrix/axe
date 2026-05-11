@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 import typer
 
@@ -711,17 +711,7 @@ def _server_lifecycle(ctx: typer.Context, verb: SystemctlVerb, command: str) -> 
         with busy(narration, opts):
             result = systemctl_verb(unit, verb)
     except AxeError as e:
-        if _looks_like_unit_not_found(e.message):
-            render_fail(
-                command=command,
-                code=ExitCode.DISCOVERY,
-                message=(
-                    f"{e.message}\n"
-                    "  run `axe unit install` to write the unit file, then retry"
-                ),
-                opts=opts,
-            )
-        render_error(command=command, error=e, opts=opts)
+        _render_unit_error(command, e, opts)
     render_ok(
         command=command,
         data={"unit": result.unit, "verb": result.verb},
@@ -730,9 +720,23 @@ def _server_lifecycle(ctx: typer.Context, verb: SystemctlVerb, command: str) -> 
     )
 
 
-def _looks_like_unit_not_found(message: str) -> bool:
-    needle = message.lower()
-    return "unit" in needle and ("not found" in needle or "not loaded" in needle)
+def _render_unit_error(command: str, error: AxeError, opts: OutputOptions) -> NoReturn:
+    """systemctl errors mentioning a missing unit get a recovery hint pointing
+    at `axe unit install`; everything else falls through to the standard error
+    renderer.
+    """
+    needle = error.message.lower()
+    if "unit" in needle and ("not found" in needle or "not loaded" in needle):
+        render_fail(
+            command=command,
+            code=ExitCode.DISCOVERY,
+            message=(
+                f"{error.message}\n"
+                "  run `axe unit install` to write the unit file, then retry"
+            ),
+            opts=opts,
+        )
+    render_error(command=command, error=error, opts=opts)
 
 
 @server_app.command("up")
@@ -758,17 +762,7 @@ def server_restart(ctx: typer.Context) -> None:
         with busy(narration, opts):
             outcome = restart_server(context)
     except AxeError as e:
-        if _looks_like_unit_not_found(e.message):
-            render_fail(
-                command="server restart",
-                code=ExitCode.DISCOVERY,
-                message=(
-                    f"{e.message}\n"
-                    "  run `axe unit install` to write the unit file, then retry"
-                ),
-                opts=opts,
-            )
-        render_error(command="server restart", error=e, opts=opts)
+        _render_unit_error("server restart", e, opts)
     render_ok(
         command="server restart",
         data={
@@ -792,17 +786,7 @@ def server_status(ctx: typer.Context) -> None:
         unit_name = context.config.effective_unit()
         show = systemctl_show(unit_name)
     except AxeError as e:
-        if _looks_like_unit_not_found(e.message):
-            render_fail(
-                command="server status",
-                code=ExitCode.DISCOVERY,
-                message=(
-                    f"{e.message}\n"
-                    "  run `axe unit install` to write the unit file, then retry"
-                ),
-                opts=opts,
-            )
-        render_error(command="server status", error=e, opts=opts)
+        _render_unit_error("server status", e, opts)
     server = _server_status_from_show(unit_name, show)
     data = {
         "unit": server.unit,

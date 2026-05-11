@@ -240,9 +240,6 @@ def format_uptime(seconds: int) -> str:
     return f"{hours}h {minutes}m" if hours else f"{minutes}m"
 
 
-_format_uptime = format_uptime  # backward-compat alias (existing print_status callsite)
-
-
 # ---------- sync ------------------------------------------------------------
 
 
