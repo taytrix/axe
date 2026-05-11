@@ -18,8 +18,9 @@ from axe import __version__
 from axe.errors import AxeError, ExitCode
 
 if TYPE_CHECKING:
+    from axe.doctor import DoctorReport
     from axe.mods import FreshnessReport
-    from axe.status import Status
+    from axe.status import ServerStatus, Status
     from axe.sync import SyncOutcome
 
 
@@ -238,6 +239,49 @@ def format_uptime(seconds: int) -> str:
     hours, remainder = divmod(seconds, 3600)
     minutes = remainder // 60
     return f"{hours}h {minutes}m" if hours else f"{minutes}m"
+
+
+def print_server_status_line(server: ServerStatus) -> None:
+    """One-line summary; matches the `server` section of `axe status`."""
+    bits = [server.unit, f"{server.active_state} ({server.sub_state})"]
+    if server.main_pid is not None:
+        bits.append(f"pid {server.main_pid}")
+    if server.uptime_seconds is not None and server.active_state == "active":
+        bits.append(f"up {format_uptime(server.uptime_seconds)}")
+    print(" — ".join(bits))
+
+
+# ---------- install / unit / doctor ----------------------------------------
+
+
+def print_install_complete(root: Path, log: Path | None) -> None:
+    print(f"installed at {root}" + (f" (log: {log})" if log else ""))
+    print()
+    print("next steps:")
+    print(f"  cd {root}")
+    print("  axe unit install        # wire systemd (server + monitor timer)")
+    print("  axe mods add top <id>   # declare a mod, then `axe sync` to apply")
+    print("  axe status              # what is true")
+
+
+def print_unit_install_done(written: list[Path], target: str) -> None:
+    for p in written:
+        print(f"wrote {p}")
+    if target in {"server", "all"}:
+        print()
+        print("enable + start the server:")
+        print("  systemctl --user enable --now axe-conan")
+    if target in {"monitor", "all"}:
+        print()
+        print("enable the drift-sensor timer:")
+        print("  systemctl --user enable --now axe-conan-monitor.timer")
+
+
+def print_doctor(report: DoctorReport) -> None:
+    console = Console()
+    for c in report.checks:
+        mark = "[green]✓[/green]" if c.ok else "[red]✗[/red]"
+        console.print(f"{mark} {c.name:24} [dim]{c.detail}[/dim]")
 
 
 # ---------- sync ------------------------------------------------------------

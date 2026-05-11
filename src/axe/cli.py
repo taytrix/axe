@@ -23,11 +23,14 @@ from axe.monitor import run_monitor_tick
 from axe.output import (
     OutputOptions,
     busy,
-    format_uptime,
+    print_doctor,
     print_front_door,
+    print_install_complete,
     print_mods,
+    print_server_status_line,
     print_status,
     print_sync,
+    print_unit_install_done,
     read_output_options,
     render_error,
     render_fail,
@@ -210,19 +213,9 @@ def install(
             "log_file": str(outcome.log_file) if outcome.log_file else None,
         },
         opts=opts,
-        human=lambda: _print_install_complete(target_root, outcome.log_file),
+        human=lambda: print_install_complete(target_root, outcome.log_file),
         warnings=outcome.warnings,
     )
-
-
-def _print_install_complete(root: Path, log: Path | None) -> None:
-    print(f"installed at {root}" + (f" (log: {log})" if log else ""))
-    print()
-    print("next steps:")
-    print(f"  cd {root}")
-    print("  axe unit install        # wire systemd (server + monitor timer)")
-    print("  axe mods add top <id>   # declare a mod, then `axe sync` to apply")
-    print("  axe status              # what is true")
 
 
 def _write_starter_toml(target_root: Path, *, command: str, opts: OutputOptions) -> None:
@@ -339,19 +332,10 @@ def doctor(ctx: typer.Context) -> None:
         command="doctor",
         data=data,
         opts=opts,
-        human=lambda: _print_doctor(report),
+        human=lambda: print_doctor(report),
     )
     if not report.all_ok:
         raise typer.Exit(int(ExitCode.DISCOVERY))
-
-
-def _print_doctor(report) -> None:  # noqa: ANN001 — DoctorReport
-    from rich.console import Console
-
-    console = Console()
-    for c in report.checks:
-        mark = "[green]✓[/green]" if c.ok else "[red]✗[/red]"
-        console.print(f"{mark} {c.name:24} [dim]{c.detail}[/dim]")
 
 
 @app.command()
@@ -656,22 +640,9 @@ def unit_install_cmd(
         command="unit install",
         data={"target": target, "written": [str(p) for p in written]},
         opts=opts,
-        human=lambda: _print_unit_install_done(written, target),
+        human=lambda: print_unit_install_done(written, target),
         warnings=[reload_warning] if reload_warning else None,
     )
-
-
-def _print_unit_install_done(written: list[Path], target: str) -> None:
-    for p in written:
-        print(f"wrote {p}")
-    if target in {"server", "all"}:
-        print()
-        print("enable + start the server:")
-        print("  systemctl --user enable --now axe-conan")
-    if target in {"monitor", "all"}:
-        print()
-        print("enable the drift-sensor timer:")
-        print("  systemctl --user enable --now axe-conan-monitor.timer")
 
 
 def _unit_print(ctx: typer.Context, target: str) -> None:
@@ -799,18 +770,8 @@ def server_status(ctx: typer.Context) -> None:
         command="server status",
         data=data,
         opts=opts,
-        human=lambda: _print_server_status_line(server),
+        human=lambda: print_server_status_line(server),
     )
-
-
-def _print_server_status_line(server) -> None:  # noqa: ANN001 — ServerStatus dataclass
-    """One-line summary; matches the `server` section of `axe status`."""
-    bits = [server.unit, f"{server.active_state} ({server.sub_state})"]
-    if server.main_pid is not None:
-        bits.append(f"pid {server.main_pid}")
-    if server.uptime_seconds is not None and server.active_state == "active":
-        bits.append(f"up {format_uptime(server.uptime_seconds)}")
-    print(" — ".join(bits))
 
 
 @logs_app.command("path")
