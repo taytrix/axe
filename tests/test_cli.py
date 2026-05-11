@@ -87,6 +87,10 @@ def test_status_envelope_shape(
     assert data["server"]["active_state"] == "inactive"
     assert data["server"]["main_pid"] is None
     assert data["mods"]["declared"] == 0
+    # settings block is always present; the synthetic install has no .ini → all None/False
+    assert data["settings"]["server_name"] is None
+    assert data["settings"]["rcon_enabled"] is False
+    assert data["settings"]["admin_password_set"] is False
 
 
 def test_status_missing_config(tmp_path: Path) -> None:

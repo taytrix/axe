@@ -9,6 +9,7 @@ from axe.build import BuildStatus, empty_build_status, read_build_status
 from axe.context import Context
 from axe.errors import AxeError
 from axe.mods import ModsStatus, empty_mods_status, read_mods_status
+from axe.settings import ServerSettings, empty_server_settings, read_server_settings
 from axe.steamcmd import SpawnLike
 from axe.systemd import systemctl_show
 from axe.workshop import FetchLike
@@ -30,6 +31,7 @@ class Status:
     server: ServerStatus
     mods: ModsStatus
     build: BuildStatus
+    settings: ServerSettings
     warnings: list[str]
 
     @property
@@ -89,6 +91,7 @@ def read_status(
     *,
     with_mods: bool = True,
     with_build: bool = True,
+    with_settings: bool = True,
     fetch: FetchLike | None = None,
     spawn: SpawnLike | None = None,
 ) -> Status:
@@ -104,11 +107,17 @@ def read_status(
         warnings.extend(build.warnings)
     else:
         build = empty_build_status()
+    if with_settings:
+        settings = read_server_settings(ctx.layout)
+        warnings.extend(settings.warnings)
+    else:
+        settings = empty_server_settings()
     return Status(
         config_path=str(ctx.config_path),
         root=str(ctx.layout.root),
         server=server,
         mods=mods_status,
         build=build,
+        settings=settings,
         warnings=warnings,
     )

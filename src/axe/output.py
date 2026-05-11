@@ -149,6 +149,15 @@ def status_envelope(s: Status) -> dict[str, object]:
             "latest_buildid": s.build.latest_buildid,
             "drifted": s.build.drifted,
         },
+        "settings": {
+            "server_name": s.settings.server_name,
+            "rcon_enabled": s.settings.rcon_enabled,
+            "rcon_port": s.settings.rcon_port,
+            "rcon_password_set": s.settings.rcon_password_set,
+            "admin_password_set": s.settings.admin_password_set,
+            "server_password_set": s.settings.server_password_set,
+            "max_players": s.settings.max_players,
+        },
     }
 
 
@@ -164,6 +173,13 @@ def print_status(s: Status, opts: OutputOptions) -> None:
         console.print(f"  pid          {s.server.main_pid}")
     if s.server.uptime_seconds is not None:
         console.print(f"  uptime       {_format_uptime(s.server.uptime_seconds)}")
+    if s.settings.server_name:
+        console.print(f"  name         \"{s.settings.server_name}\"")
+    if s.settings.rcon_port is not None:
+        rcon_state = "enabled" if s.settings.rcon_enabled else "disabled"
+        console.print(f"  rcon         port {s.settings.rcon_port} ({rcon_state})")
+    if s.settings.max_players is not None:
+        console.print(f"  max_players  {s.settings.max_players}")
     console.print()
     console.print("[dim]build[/dim]")
     console.print(f"  installed    {s.build.installed_buildid or '-'}")
